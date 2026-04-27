@@ -1,0 +1,173 @@
+"use client"
+
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarRail,
+} from "@/components/ui/sidebar"
+import { BrandLogo } from "@/components/brand-logo"
+import { WeeklyUploadCounter } from "@/components/app/weekly-upload-counter"
+import {
+  LayoutDashboard,
+  PenSquare,
+  CalendarClock,
+  History,
+  PlugZap,
+  Gift,
+  CreditCard,
+  ShieldCheck,
+  Settings,
+} from "lucide-react"
+
+const NAV_MAIN: {
+  href: string
+  label: string
+  icon: typeof LayoutDashboard
+  badge?: string
+  badgeTone?: "default" | "destructive" | "primary"
+}[] = [
+  { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
+  { href: "/dashboard/posts/new", label: "새 게시물", icon: PenSquare },
+  {
+    href: "/dashboard/posts/scheduled",
+    label: "예약 게시물",
+    icon: CalendarClock,
+    badge: "5",
+    badgeTone: "primary",
+  },
+  { href: "/dashboard/posts/history", label: "업로드 기록", icon: History },
+  {
+    href: "/dashboard/accounts",
+    label: "SNS 계정 연결",
+    icon: PlugZap,
+    badge: "1",
+    badgeTone: "destructive",
+  },
+  { href: "/dashboard/referral", label: "추천 보상", icon: Gift },
+  { href: "/dashboard/pricing", label: "요금제", icon: CreditCard },
+]
+
+const NAV_BOTTOM = [
+  { href: "/dashboard/admin", label: "관리자", icon: ShieldCheck },
+  { href: "/dashboard/settings", label: "설정", icon: Settings },
+]
+
+export function AppSidebar() {
+  const pathname = usePathname()
+  const isActive = (href: string) =>
+    href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(href)
+
+  return (
+    <Sidebar collapsible="icon">
+      <SidebarHeader className="border-b border-border/60">
+        <Link
+          href="/dashboard"
+          className="flex h-12 items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center"
+          aria-label="PostBridge 대시보드"
+        >
+          <BrandLogo />
+        </Link>
+      </SidebarHeader>
+      <SidebarContent className="gap-4 py-3">
+        <SidebarGroup>
+          <SidebarGroupLabel>워크스페이스</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {NAV_MAIN.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive(item.href)}
+                    tooltip={item.label}
+                    className="press-effect"
+                  >
+                    <Link href={item.href}>
+                      <item.icon className="h-4 w-4" aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                  {item.badge && (
+                    <SidebarMenuBadge
+                      className={
+                        item.badgeTone === "destructive"
+                          ? "bg-destructive/15 text-destructive"
+                          : item.badgeTone === "primary"
+                            ? "bg-primary/15 text-primary"
+                            : ""
+                      }
+                    >
+                      {item.badge}
+                    </SidebarMenuBadge>
+                  )}
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>관리</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {NAV_BOTTOM.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive(item.href)}
+                    tooltip={item.label}
+                    className="press-effect"
+                  >
+                    <Link href={item.href}>
+                      <item.icon className="h-4 w-4" aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+          <SidebarGroupContent className="px-2">
+            <WeeklyUploadCounter variant="sidebar" />
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter>
+        <div className="brand-gradient relative overflow-hidden rounded-xl p-4 text-primary-foreground shadow-md group-data-[collapsible=icon]:hidden">
+          <div
+            className="absolute inset-0 opacity-30"
+            aria-hidden="true"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle at 20% 0%, rgba(255,255,255,0.3), transparent 50%)",
+            }}
+          />
+          <p className="relative text-sm font-bold">Pro 업그레이드</p>
+          <p className="relative mt-1 text-xs text-primary-foreground/85">
+            월 500회 업로드 + 고급 예약
+          </p>
+          <Link
+            href="/dashboard/pricing"
+            className="press-effect relative mt-3 inline-flex h-8 items-center rounded-md bg-card px-3 text-xs font-semibold text-foreground shadow-sm hover:bg-card/90 hover:shadow"
+          >
+            업그레이드 →
+          </Link>
+        </div>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
+  )
+}

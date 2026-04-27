@@ -1,0 +1,495 @@
+/**
+ * Initial mock data. Mirrors what Supabase would return for a fresh demo
+ * account, so we can swap the data layer without changing the UI.
+ *
+ * IDs are deterministic strings (e.g. "user_001") so they're easy to follow
+ * in dev tools — once Supabase is connected, switch to UUIDs from
+ * `gen_random_uuid()`.
+ */
+
+import type {
+  Platform,
+  Post,
+  Profile,
+  ReferralCode,
+  ReferralReward,
+  SocialAccount,
+  SubscriptionPlan,
+  UploadLog,
+  UsageCredit,
+  User,
+} from "./types"
+
+// ---- Helpers -----------------------------------------------------------
+
+const now = "2026-04-27T09:00:00.000Z"
+
+/** Monday of the current demo week (UTC). */
+export const CURRENT_WEEK_START = "2026-04-27T00:00:00.000Z"
+
+// ---- Subscription plans ------------------------------------------------
+
+export const SEED_PLANS: SubscriptionPlan[] = [
+  {
+    id: "plan_free",
+    tier: "free",
+    name: "Free",
+    price_monthly: 0,
+    price_yearly: 0,
+    weekly_upload_limit: 3,
+    features: ["주 3회 무료 업로드", "5개 플랫폼 지원", "예약 발행 1건", "기본 통계"],
+    is_default: true,
+    sort_order: 0,
+  },
+  {
+    id: "plan_starter",
+    tier: "starter",
+    name: "Starter",
+    price_monthly: 9900,
+    price_yearly: 99000,
+    weekly_upload_limit: 30,
+    features: ["월 30회 업로드", "5개 플랫폼 지원", "예약 발행 무제한", "이메일 지원"],
+    is_default: false,
+    sort_order: 1,
+  },
+  {
+    id: "plan_pro",
+    tier: "pro",
+    name: "Pro",
+    price_monthly: 19900,
+    price_yearly: 199000,
+    weekly_upload_limit: 200,
+    features: ["월 200회 업로드", "팀원 3명 초대", "고급 통계 + CSV 내보내기", "우선 지원"],
+    is_default: false,
+    sort_order: 2,
+  },
+  {
+    id: "plan_business",
+    tier: "business",
+    name: "Business",
+    price_monthly: 49900,
+    price_yearly: 499000,
+    weekly_upload_limit: -1,
+    features: ["무제한 업로드", "팀원 무제한", "맞춤형 SLA", "전담 매니저"],
+    is_default: false,
+    sort_order: 3,
+  },
+]
+
+// ---- Users + Profiles --------------------------------------------------
+
+export const CURRENT_USER_ID = "user_001"
+
+export const SEED_USERS: User[] = [
+  {
+    id: "user_001",
+    email: "minjun.kim@example.com",
+    created_at: "2026-02-12T03:11:00.000Z",
+    last_sign_in_at: "2026-04-27T08:42:00.000Z",
+    is_admin: true,
+  },
+  {
+    id: "user_002",
+    email: "seoyeon.lee@example.com",
+    created_at: "2026-03-04T07:24:00.000Z",
+    last_sign_in_at: "2026-04-26T20:01:00.000Z",
+    is_admin: false,
+  },
+  {
+    id: "user_003",
+    email: "jiho.park@example.com",
+    created_at: "2026-04-12T11:01:00.000Z",
+    last_sign_in_at: "2026-04-25T14:55:00.000Z",
+    is_admin: false,
+  },
+  {
+    id: "user_004",
+    email: "yuna.choi@example.com",
+    created_at: "2025-11-20T05:11:00.000Z",
+    last_sign_in_at: "2026-04-27T07:00:00.000Z",
+    is_admin: false,
+  },
+  {
+    id: "user_005",
+    email: "haneul.jung@example.com",
+    created_at: "2026-04-25T15:09:00.000Z",
+    last_sign_in_at: null,
+    is_admin: false,
+  },
+  {
+    id: "user_006",
+    email: "doyun.han@example.com",
+    created_at: "2026-01-08T09:30:00.000Z",
+    last_sign_in_at: "2026-04-26T11:20:00.000Z",
+    is_admin: false,
+  },
+]
+
+export const SEED_PROFILES: Profile[] = [
+  {
+    id: "profile_001",
+    user_id: "user_001",
+    display_name: "김민준",
+    avatar_url: null,
+    locale: "ko-KR",
+    plan_id: "plan_pro",
+    referred_by_user_id: null,
+    created_at: "2026-02-12T03:11:00.000Z",
+    updated_at: now,
+  },
+  {
+    id: "profile_002",
+    user_id: "user_002",
+    display_name: "이서연",
+    avatar_url: null,
+    locale: "ko-KR",
+    plan_id: "plan_starter",
+    referred_by_user_id: "user_001",
+    created_at: "2026-03-04T07:24:00.000Z",
+    updated_at: now,
+  },
+  {
+    id: "profile_003",
+    user_id: "user_003",
+    display_name: "박지호",
+    avatar_url: null,
+    locale: "ko-KR",
+    plan_id: "plan_free",
+    referred_by_user_id: null,
+    created_at: "2026-04-12T11:01:00.000Z",
+    updated_at: now,
+  },
+  {
+    id: "profile_004",
+    user_id: "user_004",
+    display_name: "최유나",
+    avatar_url: null,
+    locale: "ko-KR",
+    plan_id: "plan_business",
+    referred_by_user_id: null,
+    created_at: "2025-11-20T05:11:00.000Z",
+    updated_at: now,
+  },
+  {
+    id: "profile_005",
+    user_id: "user_005",
+    display_name: "정하늘",
+    avatar_url: null,
+    locale: "ko-KR",
+    plan_id: "plan_free",
+    referred_by_user_id: null,
+    created_at: "2026-04-25T15:09:00.000Z",
+    updated_at: now,
+  },
+  {
+    id: "profile_006",
+    user_id: "user_006",
+    display_name: "한도윤",
+    avatar_url: null,
+    locale: "ko-KR",
+    plan_id: "plan_pro",
+    referred_by_user_id: "user_001",
+    created_at: "2026-01-08T09:30:00.000Z",
+    updated_at: now,
+  },
+]
+
+// ---- Posts -------------------------------------------------------------
+
+export const SEED_POSTS: Post[] = [
+  {
+    id: "post_001",
+    user_id: "user_001",
+    title: "신규 메뉴 출시 안내 — 가을 시즌 한정",
+    content: "이번 가을, PostBridge가 준비한 신메뉴를 소개합니다. 자세한 내용은 본문을 확인하세요!",
+    platforms: ["instagram", "facebook", "x"],
+    media_urls: [],
+    status: "published",
+    scheduled_at: "2026-04-26T01:00:00.000Z",
+    published_at: "2026-04-26T01:00:12.000Z",
+    fail_reason: null,
+    created_at: "2026-04-26T00:32:00.000Z",
+    updated_at: "2026-04-26T01:00:12.000Z",
+  },
+  {
+    id: "post_002",
+    user_id: "user_001",
+    title: "고객 리뷰 모아보기 #1",
+    content: "이달의 베스트 리뷰를 모아봤습니다.",
+    platforms: ["instagram", "tiktok"],
+    media_urls: [],
+    status: "scheduled",
+    scheduled_at: "2026-04-28T09:00:00.000Z",
+    published_at: null,
+    fail_reason: null,
+    created_at: "2026-04-25T05:10:00.000Z",
+    updated_at: "2026-04-25T05:10:00.000Z",
+  },
+  {
+    id: "post_003",
+    user_id: "user_001",
+    title: "유튜브 라이브 예고 — 4월 30일",
+    content: "이번주 수요일 오후 8시, 라이브로 만나요!",
+    platforms: ["youtube", "x"],
+    media_urls: [],
+    status: "scheduled",
+    scheduled_at: "2026-04-30T11:00:00.000Z",
+    published_at: null,
+    fail_reason: null,
+    created_at: "2026-04-24T02:02:00.000Z",
+    updated_at: "2026-04-24T02:02:00.000Z",
+  },
+  {
+    id: "post_004",
+    user_id: "user_001",
+    title: "브랜드 스토리 영상 (드래프트)",
+    content: "PostBridge의 시작과 비전을 담은 영상입니다.",
+    platforms: ["instagram", "youtube", "tiktok"],
+    media_urls: [],
+    status: "draft",
+    scheduled_at: null,
+    published_at: null,
+    fail_reason: null,
+    created_at: "2026-04-23T07:45:00.000Z",
+    updated_at: "2026-04-23T07:45:00.000Z",
+  },
+  {
+    id: "post_005",
+    user_id: "user_001",
+    title: "이벤트 당첨자 발표",
+    content: "지난주 이벤트의 당첨자를 발표합니다.",
+    platforms: ["instagram", "facebook"],
+    media_urls: [],
+    status: "failed",
+    scheduled_at: "2026-04-22T00:00:00.000Z",
+    published_at: null,
+    fail_reason: "API 권한 필요",
+    created_at: "2026-04-21T13:11:00.000Z",
+    updated_at: "2026-04-22T00:00:30.000Z",
+  },
+  {
+    id: "post_006",
+    user_id: "user_001",
+    title: "주말 할인 쿠폰 배포",
+    content: "이번 주말, 한정 쿠폰을 만나보세요.",
+    platforms: ["facebook", "x"],
+    media_urls: [],
+    status: "published",
+    scheduled_at: "2026-04-20T03:00:00.000Z",
+    published_at: "2026-04-20T03:00:08.000Z",
+    fail_reason: null,
+    created_at: "2026-04-20T02:14:00.000Z",
+    updated_at: "2026-04-20T03:00:08.000Z",
+  },
+  {
+    id: "post_007",
+    user_id: "user_001",
+    title: "5월 1일 신제품 티저",
+    content: "다음달 출시될 신제품의 첫 번째 힌트.",
+    platforms: ["instagram", "tiktok", "x"],
+    media_urls: [],
+    status: "scheduled",
+    scheduled_at: "2026-05-01T00:00:00.000Z",
+    published_at: null,
+    fail_reason: null,
+    created_at: "2026-04-26T09:20:00.000Z",
+    updated_at: "2026-04-26T09:20:00.000Z",
+  },
+  {
+    id: "post_008",
+    user_id: "user_001",
+    title: "월간 뉴스레터 공유",
+    content: "이번달 뉴스레터가 발송되었습니다.",
+    platforms: ["facebook", "x"],
+    media_urls: [],
+    status: "scheduled",
+    scheduled_at: "2026-05-03T02:30:00.000Z",
+    published_at: null,
+    fail_reason: null,
+    created_at: "2026-04-26T10:05:00.000Z",
+    updated_at: "2026-04-26T10:05:00.000Z",
+  },
+]
+
+// ---- Social accounts ---------------------------------------------------
+
+export const SEED_SOCIAL_ACCOUNTS: SocialAccount[] = [
+  {
+    id: "sa_001",
+    user_id: "user_001",
+    platform: "instagram",
+    status: "connected",
+    handle: "@postbridge.kr",
+    description: "비즈니스 계정으로 게시물, 릴스, 스토리 업로드를 지원합니다.",
+    access_token: "mock_access_token",
+    refresh_token: "mock_refresh_token",
+    token_expires_at: "2026-07-27T00:00:00.000Z",
+    connected_at: "2026-02-13T05:00:00.000Z",
+    created_at: "2026-02-13T05:00:00.000Z",
+    updated_at: now,
+  },
+  {
+    id: "sa_002",
+    user_id: "user_001",
+    platform: "facebook",
+    status: "connected",
+    handle: "PostBridge Page",
+    description: "페이지 게시 권한으로 텍스트, 이미지, 영상을 업로드합니다.",
+    access_token: "mock_access_token",
+    refresh_token: "mock_refresh_token",
+    token_expires_at: "2026-07-27T00:00:00.000Z",
+    connected_at: "2026-02-13T05:11:00.000Z",
+    created_at: "2026-02-13T05:11:00.000Z",
+    updated_at: now,
+  },
+  {
+    id: "sa_003",
+    user_id: "user_001",
+    platform: "youtube",
+    status: "expired",
+    handle: "@PostBridge",
+    description: "토큰이 만료되었습니다. 다시 연결해 주세요.",
+    access_token: null,
+    refresh_token: null,
+    token_expires_at: "2026-04-20T00:00:00.000Z",
+    connected_at: "2026-02-13T05:22:00.000Z",
+    created_at: "2026-02-13T05:22:00.000Z",
+    updated_at: now,
+  },
+  {
+    id: "sa_004",
+    user_id: "user_001",
+    platform: "tiktok",
+    status: "needs_connection",
+    handle: null,
+    description: "Creator/Business 계정 인증 후 업로드가 가능합니다.",
+    access_token: null,
+    refresh_token: null,
+    token_expires_at: null,
+    connected_at: null,
+    created_at: "2026-02-12T03:11:00.000Z",
+    updated_at: now,
+  },
+  {
+    id: "sa_005",
+    user_id: "user_001",
+    platform: "x",
+    status: "needs_connection",
+    handle: null,
+    description: "X API 권한 승인 후 텍스트 및 미디어 업로드가 가능합니다.",
+    access_token: null,
+    refresh_token: null,
+    token_expires_at: null,
+    connected_at: null,
+    created_at: "2026-02-12T03:11:00.000Z",
+    updated_at: now,
+  },
+]
+
+// ---- Upload logs -------------------------------------------------------
+
+const log = (
+  id: string,
+  postId: string,
+  userId: string,
+  platform: Platform,
+  status: "success" | "failed",
+  error: string | null,
+  attemptedAt: string,
+): UploadLog => ({
+  id,
+  post_id: postId,
+  user_id: userId,
+  platform,
+  status,
+  error_message: error,
+  attempted_at: attemptedAt,
+  completed_at: status === "success" ? attemptedAt : null,
+})
+
+export const SEED_UPLOAD_LOGS: UploadLog[] = [
+  log("ul_001", "post_001", "user_001", "instagram", "success", null, "2026-04-26T01:00:12.000Z"),
+  log("ul_002", "post_001", "user_001", "facebook", "success", null, "2026-04-26T01:00:18.000Z"),
+  log("ul_003", "post_001", "user_001", "x", "success", null, "2026-04-26T01:00:24.000Z"),
+  log("ul_004", "post_005", "user_001", "instagram", "failed", "API 권한 필요", "2026-04-22T00:00:30.000Z"),
+  log("ul_005", "post_005", "user_001", "facebook", "failed", "연결된 계정 만료", "2026-04-22T00:00:35.000Z"),
+  log("ul_006", "post_006", "user_001", "facebook", "success", null, "2026-04-20T03:00:08.000Z"),
+  log("ul_007", "post_006", "user_001", "x", "success", null, "2026-04-20T03:00:12.000Z"),
+  log("ul_008", "post_004", "user_006", "tiktok", "failed", "미디어 형식 오류", "2026-04-19T06:00:00.000Z"),
+  log("ul_009", "post_004", "user_006", "youtube", "failed", "미디어 형식 오류", "2026-04-19T06:00:08.000Z"),
+]
+
+// ---- Referral codes & rewards -----------------------------------------
+
+export const SEED_REFERRAL_CODES: ReferralCode[] = [
+  { id: "rc_001", user_id: "user_001", code: "POSTBRIDGE-MJ12K", uses_count: 12, created_at: "2026-02-12T03:11:00.000Z" },
+  { id: "rc_002", user_id: "user_002", code: "POSTBRIDGE-SY7H", uses_count: 0, created_at: "2026-03-04T07:24:00.000Z" },
+  { id: "rc_003", user_id: "user_003", code: "POSTBRIDGE-JH9D", uses_count: 0, created_at: "2026-04-12T11:01:00.000Z" },
+]
+
+export const SEED_REFERRAL_REWARDS: ReferralReward[] = [
+  {
+    id: "rr_001",
+    referrer_user_id: "user_001",
+    referred_user_id: "user_002",
+    referral_code_id: "rc_001",
+    reward_credits: 3,
+    created_at: "2026-04-22T11:00:00.000Z",
+  },
+  {
+    id: "rr_002",
+    referrer_user_id: "user_001",
+    referred_user_id: "user_006",
+    referral_code_id: "rc_001",
+    reward_credits: 3,
+    created_at: "2026-04-18T08:30:00.000Z",
+  },
+  {
+    id: "rr_003",
+    referrer_user_id: "user_001",
+    referred_user_id: "user_003",
+    referral_code_id: "rc_001",
+    reward_credits: 3,
+    created_at: "2026-04-11T09:14:00.000Z",
+  },
+  {
+    id: "rr_004",
+    referrer_user_id: "user_001",
+    referred_user_id: "user_004",
+    referral_code_id: "rc_001",
+    reward_credits: 3,
+    created_at: "2026-04-02T07:45:00.000Z",
+  },
+]
+
+// ---- Usage credits -----------------------------------------------------
+
+export const SEED_USAGE_CREDITS: UsageCredit[] = [
+  {
+    id: "uc_001",
+    user_id: "user_001",
+    plan_id: "plan_pro",
+    week_start: CURRENT_WEEK_START,
+    used_count: 4,
+    bonus_count: 12,
+    plan_limit: 200,
+  },
+  {
+    id: "uc_002",
+    user_id: "user_002",
+    plan_id: "plan_starter",
+    week_start: CURRENT_WEEK_START,
+    used_count: 2,
+    bonus_count: 3,
+    plan_limit: 30,
+  },
+  {
+    id: "uc_003",
+    user_id: "user_003",
+    plan_id: "plan_free",
+    week_start: CURRENT_WEEK_START,
+    used_count: 1,
+    bonus_count: 0,
+    plan_limit: 3,
+  },
+]
