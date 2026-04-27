@@ -534,7 +534,11 @@ create policy "media assets are updatable by owner"
 on public.media_assets
 for update
 to authenticated
-using (auth.uid() = user_id)
+using (
+  auth.uid() = user_id
+  and status <> 'deleted'
+  and deleted_at is null
+)
 with check (
   auth.uid() = user_id
   and status <> 'deleted'
