@@ -2,6 +2,10 @@
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 
+// Storage is temporary staging for SNS uploads, not permanent media storage.
+// Clients only upload and mark cleanup intent; service_role workers perform
+// actual Storage removal and then mark rows as deleted.
+
 export type SupabaseMediaType = "image" | "video"
 export type SupabaseMediaAssetStatus =
   | "uploading"
@@ -36,6 +40,8 @@ export type SupabaseMediaAssetPreview = SupabaseMediaAssetRow & {
 export type UploadPostMediaInput = {
   postId: string
   files: File[]
+  status?: Extract<SupabaseMediaAssetStatus, "attached" | "pending_delete">
+  deleteAfter?: Date | null
 }
 
 const POST_MEDIA_BUCKET = "post-media"
@@ -75,6 +81,8 @@ export function validatePostMediaFile(file: File): SupabaseMediaType {
 export async function uploadPostMediaAssets({
   postId,
   files,
+  status = "attached",
+  deleteAfter = null,
 }: UploadPostMediaInput): Promise<SupabaseMediaAssetRow[]> {
   if (files.length === 0) {
     return []
@@ -118,7 +126,8 @@ export async function uploadPostMediaAssets({
         mime_type: file.type,
         file_size: file.size,
         media_type: mediaType,
-        status: "attached",
+        status,
+        delete_after: deleteAfter?.toISOString() ?? null,
       })
       .select("*")
       .single<SupabaseMediaAssetRow>()
@@ -131,6 +140,23 @@ export async function uploadPostMediaAssets({
   }
 
   return uploadedRows
+}
+
+export async function markMyPostMediaPendingDelete(
+  postId: string,
+  deleteAfter: Date = new Date(),
+): Promise<SupabaseMediaAssetRow[]> {
+  const supabase = createBrowserSupabaseClient()
+  const { data, error } = await supabase.rpc("mark_my_post_media_pending_delete", {
+    target_post_id: postId,
+    delete_after_at: deleteAfter.toISOString(),
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []) as SupabaseMediaAssetRow[]
 }
 
 export async function listAttachedMediaAssetsForPosts(
@@ -156,7 +182,8 @@ export async function listAttachedMediaAssetsForPosts(
     .from("media_assets")
     .select("*")
     .eq("user_id", user.id)
-    .eq("status", "attached")
+    .in("status", ["attached", "pending_delete"])
+    .is("deleted_at", null)
     .in("post_id", uniquePostIds)
     .order("created_at", { ascending: true })
 

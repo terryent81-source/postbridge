@@ -1,6 +1,6 @@
 # Supabase Storage Design
 
-PostBridge stores uploaded image and video binaries in Supabase Storage, not in Postgres. Postgres stores metadata in `public.media_assets`.
+PostBridge stores uploaded image and video binaries in Supabase Storage only as temporary SNS upload staging. Supabase Storage is not a permanent media archive for the product. Postgres stores metadata and cleanup state in `public.media_assets`.
 
 ## Bucket
 
@@ -18,6 +18,7 @@ Bucket creation and Storage RLS policies are drafted in `supabase/storage_polici
 - Authenticated users can read only files under their own top-level folder.
 - Authenticated users must not delete Storage files directly.
 - File deletion is handled by a cleanup worker or server route using `service_role`.
+- Browser code may mark owned media as `pending_delete`, but it must never use a service-role key or remove Storage objects directly.
 
 ## MIME Types
 
@@ -49,6 +50,9 @@ Supabase bucket-level `file_size_limit` is set to 300 MB because it cannot expre
    - `delete_after`
 3. Posts link to files through `media_assets.post_id`, not `posts.media_urls`.
 4. Upload workers use `media_assets` rows for SNS upload jobs.
+5. Immediate upload success marks assets as `pending_delete` with `delete_after = now()`.
+6. Upload failure marks assets as `pending_delete` with `delete_after` about 72 hours later.
+7. Draft and scheduled assets remain `attached` until the user publishes, the schedule runs, or a future draft cleanup policy marks them for deletion.
 
 ## Deletion Policy
 
@@ -71,8 +75,9 @@ Deletion timing:
 
 - Immediate upload success: set `delete_after = now()`.
 - Scheduled upload success: set `delete_after = now()`.
-- Upload failed: keep for 24 to 72 hours, then delete.
-- Draft assets: delete after 7 days.
+- Upload failed: keep for 72 hours, then delete.
+- Draft assets: keep while the draft exists. A future cleanup policy may mark stale drafts after a retention period.
+- Scheduled assets: keep until scheduled execution finishes.
 
 ## Cleanup Worker Query
 
@@ -84,7 +89,7 @@ from public.media_assets
 where deleted_at is null
   and delete_after is not null
   and delete_after <= now()
-  and status in ('upload_success', 'upload_failed', 'pending_delete', 'attached');
+  and status = 'pending_delete';
 ```
 
 Recommended server-side steps:

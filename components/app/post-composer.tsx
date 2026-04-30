@@ -43,6 +43,7 @@ import {
   type Platform,
 } from "@/lib/db"
 import {
+  markMyPostMediaPendingDelete,
   uploadPostMediaAssets,
   validatePostMediaFile,
 } from "@/lib/supabase/media-assets"
@@ -52,6 +53,7 @@ import {
   getMyUsageCredits,
   hasAvailableUploadCredit,
 } from "@/lib/supabase/usage-credits"
+import { recordMyMockUploadResult } from "@/lib/supabase/upload-logs"
 import {
   Save,
   Send,
@@ -232,9 +234,16 @@ export function PostComposer() {
     const id = toast.loading(`${selected.size}개 플랫폼에 업로드 중...`, {
       description: "잠시만 기다려 주세요.",
     })
+    const input = buildPostInput()
     try {
-      const post = await createMockPost(CURRENT_USER, buildPostInput())
+      const post = await createMockPost(CURRENT_USER, input)
       const published = await publishPost(post.id)
+      const supabaseLogs = await recordMyMockUploadResult({
+        title: input.title,
+        content: input.content,
+        platforms: input.platforms,
+      })
+      await stageImmediateUploadMediaForCleanup(supabaseLogs?.[0]?.post_id, 0)
       if (supabaseUsage) {
         await consumeMyWeeklyUploadCredit()
       } else {
@@ -247,12 +256,67 @@ export function PostComposer() {
           : "사용 횟수와 업로드 기록이 mock 데이터에 반영되었습니다.",
       })
     } catch (error) {
+      const message = error instanceof Error ? error.message : "업로드에 실패했습니다."
+      const failedPlatforms = getMockFailedPlatforms(message, input.platforms)
+
+      const supabaseLogs = await recordMyMockUploadResult({
+        title: input.title,
+        content: input.content,
+        platforms: input.platforms,
+        failedPlatforms,
+        failReason: message,
+      }).catch(() => null)
+      await stageImmediateUploadMediaForCleanup(
+        supabaseLogs?.[0]?.post_id,
+        72 * 60 * 60 * 1000,
+      )
+
       toast.error(error instanceof Error ? error.message : "업로드에 실패했습니다.", {
         id,
         description: "연결되지 않은 플랫폼을 선택하면 실패 로그가 mock으로 생성됩니다.",
       })
     } finally {
       setIsPosting(false)
+    }
+  }
+
+  function getMockFailedPlatforms(message: string, platforms: Platform[]) {
+    const marker = "연결 필요:"
+    const markerIndex = message.indexOf(marker)
+
+    if (markerIndex === -1) {
+      return platforms
+    }
+
+    const failed = message
+      .slice(markerIndex + marker.length)
+      .split(",")
+      .map((platform) => platform.trim())
+
+    return platforms.filter((platform) => failed.includes(platform))
+  }
+
+  async function stageImmediateUploadMediaForCleanup(
+    postId: string | undefined,
+    cleanupDelayMs: number,
+  ) {
+    if (!postId || media.length === 0) {
+      return
+    }
+
+    try {
+      const deleteAfter = new Date(Date.now() + cleanupDelayMs)
+      const uploadedCount = await uploadSelectedMedia(postId, {
+        status: "pending_delete",
+        deleteAfter,
+      })
+
+      if (uploadedCount > 0) {
+        await markMyPostMediaPendingDelete(postId, deleteAfter)
+      }
+    } catch {
+      // Storage is only temporary staging. Actual removal is handled later by
+      // a service_role cleanup worker or server route, never by the browser.
     }
   }
 
@@ -270,22 +334,31 @@ export function PostComposer() {
     await scheduleMockPost(post.id, scheduledAt)
   }
 
-  const uploadSelectedMedia = async (postId: string) => {
+  const uploadSelectedMedia = async (
+    postId: string,
+    cleanup?: { status: "pending_delete"; deleteAfter: Date },
+  ) => {
     const files = media.map((item) => item.file)
 
     if (files.length === 0) {
-      return
+      return 0
     }
 
     const toastId = toast.loading(`${files.length}개 미디어를 업로드하는 중입니다.`)
 
     try {
-      const assets = await uploadPostMediaAssets({ postId, files })
+      const assets = await uploadPostMediaAssets({
+        postId,
+        files,
+        status: cleanup?.status,
+        deleteAfter: cleanup?.deleteAfter,
+      })
 
       toast.success(`${assets.length}개 미디어가 업로드되었습니다.`, {
         id: toastId,
         description: "Supabase Storage와 media_assets에 연결되었습니다.",
       })
+      return assets.length
     } catch (error) {
       toast.error("미디어 업로드에 실패했습니다", {
         id: toastId,

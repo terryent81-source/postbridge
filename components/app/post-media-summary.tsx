@@ -22,6 +22,7 @@ export function PostMediaSummary({
   )
   const firstAsset = representativeImage ?? mediaAssets[0]
   const videoAsset = mediaAssets.find((asset) => asset.media_type === "video")
+  const hasPendingDelete = mediaAssets.some((asset) => asset.status === "pending_delete")
 
   return (
     <div className={cn("flex min-w-0 items-center gap-2", className)}>
@@ -45,12 +46,19 @@ export function PostMediaSummary({
         <div className="flex items-center gap-1 text-xs font-semibold text-foreground">
           <Paperclip className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span>{mediaAssets.length}개 미디어</span>
+          {hasPendingDelete && (
+            <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+              삭제 예정
+            </span>
+          )}
         </div>
         {!compact && (
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {videoAsset
-              ? `${videoAsset.file_name} · ${formatFileSize(videoAsset.file_size)} · ${videoAsset.mime_type}`
-              : firstAsset.file_name}
+            {hasPendingDelete
+              ? "업로드 완료 후 정리 예정"
+              : videoAsset
+                ? `${videoAsset.file_name} · ${formatFileSize(videoAsset.file_size)} · ${videoAsset.mime_type}`
+                : firstAsset.file_name}
           </p>
         )}
       </div>
