@@ -23,7 +23,6 @@ import { StatusBadge } from "@/components/app/status-badge"
 import { PlatformIcon } from "@/components/platform-icon"
 import { WeeklyUploadCounter } from "@/components/app/weekly-upload-counter"
 import {
-  getProfile,
   getPosts,
   getSocialAccounts,
   getUploadLogs,
@@ -35,6 +34,10 @@ import {
   type UiPost,
   type UiSocialAccount,
 } from "@/lib/db"
+import {
+  getCurrentUserWithProfile,
+  SUPABASE_PROFILE_CHANGED_EVENT,
+} from "@/lib/supabase/profile"
 import {
   Plus,
   CalendarClock,
@@ -59,15 +62,15 @@ export default function DashboardPage() {
   useEffect(() => {
     let mounted = true
     const loadDashboard = () => Promise.all([
-      getProfile(),
+      getCurrentUserWithProfile().catch(() => null),
       getPosts(undefined, { limit: 6 }),
       getSocialAccounts(),
       getUserUsageCredits(),
       listScheduledPosts(),
       getUploadLogs(),
-    ]).then(([profile, posts, accounts, usageRow, scheduledPosts, uploadLogs]) => {
+    ]).then(([currentProfile, posts, accounts, usageRow, scheduledPosts, uploadLogs]) => {
       if (!mounted) return
-      setProfileName(profile?.display_name ?? "사용자")
+      setProfileName(currentProfile?.displayName ?? "사용자")
       setRecentPosts(posts.map(mapPostToUi))
       setSocialAccounts(accounts.map(mapSocialAccountToUi))
       setUsage({
@@ -82,9 +85,11 @@ export default function DashboardPage() {
     })
     loadDashboard()
     window.addEventListener(MOCK_DB_CHANGED_EVENT, loadDashboard)
+    window.addEventListener(SUPABASE_PROFILE_CHANGED_EVENT, loadDashboard)
     return () => {
       mounted = false
       window.removeEventListener(MOCK_DB_CHANGED_EVENT, loadDashboard)
+      window.removeEventListener(SUPABASE_PROFILE_CHANGED_EVENT, loadDashboard)
     }
   }, [])
 

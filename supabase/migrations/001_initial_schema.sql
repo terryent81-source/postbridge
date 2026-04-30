@@ -1,9 +1,4 @@
 -- PostBridge initial Supabase schema.
--- This migration intentionally does not create the Supabase Storage bucket.
--- Assumed bucket name: post-media.
--- Bucket creation and Storage policies should be handled in a separate
--- Storage-specific migration or deployment document.
-
 create extension if not exists pgcrypto;
 
 create schema if not exists private;

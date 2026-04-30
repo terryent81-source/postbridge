@@ -1,9 +1,12 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { toast } from "sonner"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
-import { Bell, Plus, Search } from "lucide-react"
+import { Bell, LogOut, Plus, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
@@ -21,8 +24,61 @@ import {
 } from "@/components/ui/input-group"
 import { WeeklyUploadCounter } from "@/components/app/weekly-upload-counter"
 import { Kbd } from "@/components/ui/kbd"
+import { signOutCurrentUser } from "@/lib/supabase/auth"
+import {
+  getCurrentUserWithProfile,
+  getProfileInitials,
+  SUPABASE_PROFILE_CHANGED_EVENT,
+  type CurrentUserProfile,
+} from "@/lib/supabase/profile"
 
 export function AppTopbar() {
+  const router = useRouter()
+  const [currentProfile, setCurrentProfile] = useState<CurrentUserProfile | null>(null)
+  const displayName = currentProfile?.displayName ?? "사용자"
+  const email = currentProfile?.email ?? ""
+  const initials = getProfileInitials(displayName, email)
+
+  useEffect(() => {
+    let isMounted = true
+    const loadProfile = () => getCurrentUserWithProfile()
+      .then((profile) => {
+        if (isMounted) {
+          setCurrentProfile(profile)
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setCurrentProfile(null)
+        }
+      })
+
+    loadProfile()
+    window.addEventListener(SUPABASE_PROFILE_CHANGED_EVENT, loadProfile)
+
+    return () => {
+      isMounted = false
+      window.removeEventListener(SUPABASE_PROFILE_CHANGED_EVENT, loadProfile)
+    }
+  }, [])
+
+  async function handleSignOut(event: Event) {
+    event.preventDefault()
+
+    const { error } = await signOutCurrentUser()
+
+    if (error) {
+      toast.error("로그아웃에 실패했습니다", {
+        description: error.message,
+      })
+      return
+    }
+
+    toast.success("로그아웃되었습니다")
+    router.replace("/login")
+    router.refresh()
+  }
+
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-4">
       <SidebarTrigger className="press-effect" />
@@ -75,19 +131,19 @@ export function AppTopbar() {
           >
             <Avatar className="h-8 w-8 border border-border">
               <AvatarFallback className="brand-gradient text-xs font-bold text-primary-foreground">
-                MJ
+                {initials}
               </AvatarFallback>
             </Avatar>
-            <span className="hidden text-sm font-medium text-foreground sm:inline">민준</span>
+            <span className="hidden text-sm font-medium text-foreground sm:inline">
+              {displayName}
+            </span>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel>
             <div className="flex flex-col">
-              <span className="font-semibold">김민준</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                minjun@postbridge.kr
-              </span>
+              <span className="font-semibold">{displayName}</span>
+              <span className="text-xs font-normal text-muted-foreground">{email}</span>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
@@ -101,10 +157,13 @@ export function AppTopbar() {
             <Link href="/dashboard/referral">추천 보상</Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link href="/" className="text-destructive">
-              로그아웃
-            </Link>
+          <DropdownMenuItem
+            className="text-destructive"
+            variant="destructive"
+            onSelect={handleSignOut}
+          >
+            <LogOut className="h-4 w-4" />
+            로그아웃
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

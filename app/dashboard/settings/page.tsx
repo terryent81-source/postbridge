@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState, type FormEvent } from "react"
 import { PageHeader } from "@/components/app/page-header"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -18,8 +19,87 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Trash2 } from "lucide-react"
 import { toast } from "sonner"
+import {
+  getCurrentUserWithProfile,
+  getProfileInitials,
+  notifySupabaseProfileChanged,
+  updateMyProfile,
+} from "@/lib/supabase/profile"
 
 export default function SettingsPage() {
+  const [displayName, setDisplayName] = useState("PostBridge 사용자")
+  const [email, setEmail] = useState("")
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [locale, setLocale] = useState("ko-KR")
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true)
+  const [isSavingProfile, setIsSavingProfile] = useState(false)
+  const initials = getProfileInitials(displayName, email)
+
+  useEffect(() => {
+    let isMounted = true
+
+    getCurrentUserWithProfile()
+      .then((currentProfile) => {
+        if (!isMounted || !currentProfile) {
+          return
+        }
+
+        setDisplayName(currentProfile.displayName)
+        setEmail(currentProfile.email)
+        setAvatarUrl(currentProfile.avatarUrl)
+        setLocale(currentProfile.locale)
+      })
+      .catch((error) => {
+        toast.error("프로필 정보를 불러오지 못했습니다", {
+          description: error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요.",
+        })
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingProfile(false)
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  async function handleProfileSave(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault()
+    setIsSavingProfile(true)
+
+    try {
+      const { data, error } = await updateMyProfile({
+        displayName,
+        avatarUrl,
+        locale,
+      })
+
+      if (error) {
+        toast.error("프로필 저장에 실패했습니다", {
+          description: error.message,
+        })
+        return
+      }
+
+      if (data) {
+        setDisplayName(data.display_name)
+        setAvatarUrl(data.avatar_url)
+        setLocale(data.locale)
+      }
+
+      notifySupabaseProfileChanged()
+      toast.success("프로필이 저장되었습니다.")
+    } catch (error) {
+      toast.error("프로필 저장에 실패했습니다", {
+        description: error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요.",
+      })
+    } finally {
+      setIsSavingProfile(false)
+    }
+  }
+
   return (
     <>
       <PageHeader title="설정" description="프로필, 보안, 알림 등을 관리하세요." />
@@ -44,7 +124,7 @@ export default function SettingsPage() {
                 <div className="mt-5 flex items-center gap-4">
                   <Avatar className="h-16 w-16">
                     <AvatarFallback className="brand-gradient text-base font-bold text-primary-foreground">
-                      MJ
+                      {initials}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex gap-2">
@@ -57,30 +137,47 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <FieldGroup className="mt-6 grid gap-5 sm:grid-cols-2">
-                  <Field>
-                    <FieldLabel htmlFor="p-name">이름</FieldLabel>
-                    <Input id="p-name" defaultValue="김민준" />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="p-email">이메일</FieldLabel>
-                    <Input id="p-email" type="email" defaultValue="minjun@postbridge.kr" />
-                  </Field>
-                  <Field className="sm:col-span-2">
-                    <FieldLabel htmlFor="p-bio">자기소개</FieldLabel>
-                    <Input id="p-bio" defaultValue="콘텐츠 디렉터 · 1인 브랜드 운영" />
-                    <FieldDescription>일부 플랫폼 미리보기에 표시될 수 있습니다.</FieldDescription>
-                  </Field>
-                </FieldGroup>
+                <form onSubmit={handleProfileSave}>
+                  <FieldGroup className="mt-6 grid gap-5 sm:grid-cols-2">
+                    <Field>
+                      <FieldLabel htmlFor="p-name">이름</FieldLabel>
+                      <Input
+                        id="p-name"
+                        value={displayName}
+                        onChange={(event) => setDisplayName(event.target.value)}
+                        disabled={isLoadingProfile}
+                        required
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="p-email">이메일</FieldLabel>
+                      <Input id="p-email" type="email" value={email} readOnly />
+                    </Field>
+                    <Field className="sm:col-span-2">
+                      <FieldLabel htmlFor="p-avatar">아바타 URL</FieldLabel>
+                      <Input
+                        id="p-avatar"
+                        value={avatarUrl ?? ""}
+                        onChange={(event) => setAvatarUrl(event.target.value || null)}
+                        placeholder="https://example.com/avatar.png"
+                        disabled={isLoadingProfile}
+                      />
+                      <FieldDescription>
+                        실제 이미지 업로드는 Storage 연결 단계에서 추가됩니다.
+                      </FieldDescription>
+                    </Field>
+                  </FieldGroup>
 
-                <div className="mt-6 flex justify-end">
-                  <Button
-                    className="brand-gradient text-primary-foreground hover:opacity-95"
-                    onClick={() => toast.success("프로필이 저장되었습니다.")}
-                  >
-                    저장하기
-                  </Button>
-                </div>
+                  <div className="mt-6 flex justify-end">
+                    <Button
+                      type="submit"
+                      className="brand-gradient text-primary-foreground hover:opacity-95"
+                      disabled={isLoadingProfile || isSavingProfile}
+                    >
+                      {isSavingProfile ? "저장 중..." : "저장하기"}
+                    </Button>
+                  </div>
+                </form>
               </CardContent>
             </Card>
           </TabsContent>
@@ -129,23 +226,24 @@ export default function SettingsPage() {
                   <Label htmlFor="lang" className="mb-1.5 block">
                     언어
                   </Label>
-                  <Select defaultValue="ko">
+                  <Select value={locale} onValueChange={setLocale}>
                     <SelectTrigger id="lang">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ko">한국어 (기본)</SelectItem>
-                      <SelectItem value="en">English</SelectItem>
-                      <SelectItem value="ja">日本語</SelectItem>
+                      <SelectItem value="ko-KR">한국어 (기본)</SelectItem>
+                      <SelectItem value="en-US">English</SelectItem>
+                      <SelectItem value="ja-JP">日本語</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="mt-6 flex justify-end">
                   <Button
                     className="brand-gradient text-primary-foreground hover:opacity-95"
-                    onClick={() => toast.success("언어 설정이 저장되었습니다.")}
+                    disabled={isLoadingProfile || isSavingProfile}
+                    onClick={() => handleProfileSave()}
                   >
-                    저장하기
+                    {isSavingProfile ? "저장 중..." : "저장하기"}
                   </Button>
                 </div>
               </CardContent>

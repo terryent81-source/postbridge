@@ -34,14 +34,15 @@ import {
 import { PlatformIcon, PLATFORM_NAMES } from "@/components/platform-icon"
 import { WeeklyUploadCounter } from "@/components/app/weekly-upload-counter"
 import {
-  createPost,
+  createPost as createMockPost,
   CURRENT_USER,
   PLATFORMS,
   publishPost,
   recordWeeklyUpload,
-  schedulePost,
+  schedulePost as scheduleMockPost,
   type Platform,
 } from "@/lib/db"
+import { createSupabasePost } from "@/lib/supabase/posts"
 import {
   Save,
   Send,
@@ -150,9 +151,16 @@ export function PostComposer() {
     if (isSavingDraft) return
     setIsSavingDraft(true)
     try {
-      await createPost(CURRENT_USER, buildPostInput())
+      const input = buildPostInput()
+      await createSupabasePost({
+        title: input.title,
+        content: input.content,
+        platforms: input.platforms,
+        status: "draft",
+      })
+      await createMockPost(CURRENT_USER, input)
       toast.success("임시저장되었습니다.", {
-        description: "현재 브라우저 세션의 mock 데이터에 저장되었습니다.",
+        description: "Supabase posts 테이블에 draft로 저장되었습니다.",
       })
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "임시저장에 실패했습니다.")
@@ -174,7 +182,7 @@ export function PostComposer() {
       description: "잠시만 기다려 주세요.",
     })
     try {
-      const post = await createPost(CURRENT_USER, buildPostInput())
+      const post = await createMockPost(CURRENT_USER, buildPostInput())
       const published = await publishPost(post.id)
       await recordWeeklyUpload(CURRENT_USER, published.platforms.length)
       toast.success(`${published.platforms.length}개 플랫폼에 업로드를 시작했습니다.`, {
@@ -192,8 +200,16 @@ export function PostComposer() {
   }
 
   const handleSchedulePost = async (scheduledAt: string) => {
-    const post = await createPost(CURRENT_USER, buildPostInput())
-    await schedulePost(post.id, scheduledAt)
+    const input = buildPostInput()
+    await createSupabasePost({
+      title: input.title,
+      content: input.content,
+      platforms: input.platforms,
+      status: "scheduled",
+      scheduledAt,
+    })
+    const post = await createMockPost(CURRENT_USER, input)
+    await scheduleMockPost(post.id, scheduledAt)
   }
 
   const insertHashtagSet = (tags: string) => {
