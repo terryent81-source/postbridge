@@ -48,6 +48,11 @@ import {
 } from "@/lib/supabase/media-assets"
 import { createSupabasePost } from "@/lib/supabase/posts"
 import {
+  consumeMyWeeklyUploadCredit,
+  getMyUsageCredits,
+  hasAvailableUploadCredit,
+} from "@/lib/supabase/usage-credits"
+import {
   Save,
   Send,
   CalendarClock,
@@ -215,6 +220,14 @@ export function PostComposer() {
       else toast.error("본문을 작성해 주세요.")
       return
     }
+
+    const supabaseUsage = await getMyUsageCredits().catch(() => null)
+
+    if (supabaseUsage && !hasAvailableUploadCredit(supabaseUsage)) {
+      toast.error("무료 업로드 횟수를 모두 사용했습니다")
+      return
+    }
+
     setIsPosting(true)
     const id = toast.loading(`${selected.size}개 플랫폼에 업로드 중...`, {
       description: "잠시만 기다려 주세요.",
@@ -222,10 +235,16 @@ export function PostComposer() {
     try {
       const post = await createMockPost(CURRENT_USER, buildPostInput())
       const published = await publishPost(post.id)
-      await recordWeeklyUpload(CURRENT_USER, published.platforms.length)
+      if (supabaseUsage) {
+        await consumeMyWeeklyUploadCredit()
+      } else {
+        await recordWeeklyUpload(CURRENT_USER, 1)
+      }
       toast.success(`${published.platforms.length}개 플랫폼에 업로드를 시작했습니다.`, {
         id,
-        description: "사용 횟수와 업로드 기록이 mock 데이터에 반영되었습니다.",
+        description: supabaseUsage
+          ? "이번 주 무료 업로드 횟수가 1회 차감되었습니다."
+          : "사용 횟수와 업로드 기록이 mock 데이터에 반영되었습니다.",
       })
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "업로드에 실패했습니다.", {

@@ -44,6 +44,11 @@ import {
   listMyRecentSupabasePostsWithMedia,
   listMyScheduledSupabasePostsWithMedia,
 } from "@/lib/supabase/posts"
+import {
+  getMyUsageCredits,
+  getUsageCreditTotal,
+  SUPABASE_USAGE_CREDITS_CHANGED_EVENT,
+} from "@/lib/supabase/usage-credits"
 import type { SupabaseMediaAssetPreview } from "@/lib/supabase/media-assets"
 import {
   Plus,
@@ -82,16 +87,18 @@ export default function DashboardPage() {
       listMyRecentSupabasePostsWithMedia(6).catch(() => []),
       listMyScheduledSupabasePostsWithMedia().catch(() => []),
       hasMySupabasePosts().catch(() => false),
+      getMyUsageCredits().catch(() => null),
     ]).then(([
       currentProfile,
       mockPosts,
       accounts,
-      usageRow,
+      mockUsageRow,
       mockScheduledPosts,
       uploadLogs,
       supabasePosts,
       supabaseScheduledPosts,
       hasSupabasePosts,
+      supabaseUsageRow,
     ]) => {
       if (!mounted) return
       const posts: DashboardUiPost[] = hasSupabasePosts
@@ -108,11 +115,12 @@ export default function DashboardPage() {
       setRecentPosts(posts)
       setSocialAccounts(accounts.map(mapSocialAccountToUi))
       setUsage({
-        used: usageRow.used_count,
-        total:
-          usageRow.plan_limit < 0
-            ? usageRow.used_count + usageRow.bonus_count
-            : usageRow.plan_limit + usageRow.bonus_count,
+        used: supabaseUsageRow?.used_count ?? mockUsageRow.used_count,
+        total: supabaseUsageRow
+          ? getUsageCreditTotal(supabaseUsageRow)
+          : mockUsageRow.plan_limit < 0
+            ? mockUsageRow.used_count + mockUsageRow.bonus_count
+            : mockUsageRow.plan_limit + mockUsageRow.bonus_count,
       })
       setScheduledCount(scheduledCount)
       setFailedCount(uploadLogs.filter((log) => log.status === "failed").length)
@@ -120,10 +128,12 @@ export default function DashboardPage() {
     loadDashboard()
     window.addEventListener(MOCK_DB_CHANGED_EVENT, loadDashboard)
     window.addEventListener(SUPABASE_PROFILE_CHANGED_EVENT, loadDashboard)
+    window.addEventListener(SUPABASE_USAGE_CREDITS_CHANGED_EVENT, loadDashboard)
     return () => {
       mounted = false
       window.removeEventListener(MOCK_DB_CHANGED_EVENT, loadDashboard)
       window.removeEventListener(SUPABASE_PROFILE_CHANGED_EVENT, loadDashboard)
+      window.removeEventListener(SUPABASE_USAGE_CREDITS_CHANGED_EVENT, loadDashboard)
     }
   }, [])
 

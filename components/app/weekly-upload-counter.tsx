@@ -6,6 +6,11 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Sparkles, Zap } from "lucide-react"
 import { getUserUsageCredits, MOCK_DB_CHANGED_EVENT } from "@/lib/db"
+import {
+  getMyUsageCredits,
+  getUsageCreditTotal,
+  SUPABASE_USAGE_CREDITS_CHANGED_EVENT,
+} from "@/lib/supabase/usage-credits"
 import { cn } from "@/lib/utils"
 
 export type WeeklyUploadCounterProps = {
@@ -35,18 +40,36 @@ export function WeeklyUploadCounter({
   useEffect(() => {
     if (typeof used === "number" && typeof total === "number") return
     let mounted = true
-    const loadUsage = () => getUserUsageCredits().then((row) => {
+    const loadUsage = async () => {
+      const supabaseRow = await getMyUsageCredits().catch(() => null)
+
+      if (!mounted) return
+
+      if (supabaseRow) {
+        setUsage({
+          used: supabaseRow.used_count,
+          total: getUsageCreditTotal(supabaseRow),
+        })
+        return
+      }
+
+      const row = await getUserUsageCredits()
       if (!mounted) return
       setUsage({
         used: row.used_count,
-        total: row.plan_limit < 0 ? row.used_count + row.bonus_count : row.plan_limit + row.bonus_count,
+        total:
+          row.plan_limit < 0
+            ? row.used_count + row.bonus_count
+            : row.plan_limit + row.bonus_count,
       })
-    })
+    }
     loadUsage()
     window.addEventListener(MOCK_DB_CHANGED_EVENT, loadUsage)
+    window.addEventListener(SUPABASE_USAGE_CREDITS_CHANGED_EVENT, loadUsage)
     return () => {
       mounted = false
       window.removeEventListener(MOCK_DB_CHANGED_EVENT, loadUsage)
+      window.removeEventListener(SUPABASE_USAGE_CREDITS_CHANGED_EVENT, loadUsage)
     }
   }, [total, used])
 
