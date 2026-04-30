@@ -9,6 +9,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { PlatformIcon } from "@/components/platform-icon"
 import { EmptyState } from "@/components/app/empty-state"
 import { listScheduledPosts, mapPostToUi, MOCK_DB_CHANGED_EVENT, type UiPost } from "@/lib/db"
+import { hasMySupabasePosts, listMyScheduledSupabasePosts } from "@/lib/supabase/posts"
 import {
   CalendarDays,
   CalendarX,
@@ -44,8 +45,14 @@ export default function ScheduledPage() {
 
   useEffect(() => {
     let mounted = true
-    const loadPosts = () => listScheduledPosts().then((rows) => {
-      if (mounted) setPosts(rows.map(mapPostToUi))
+    const loadPosts = () => Promise.all([
+      listScheduledPosts(),
+      listMyScheduledSupabasePosts().catch(() => []),
+      hasMySupabasePosts().catch(() => false),
+    ]).then(([mockRows, supabaseRows, hasSupabasePosts]) => {
+      if (mounted) {
+        setPosts((hasSupabasePosts ? supabaseRows : mockRows).map(mapPostToUi))
+      }
     })
     loadPosts()
     window.addEventListener(MOCK_DB_CHANGED_EVENT, loadPosts)

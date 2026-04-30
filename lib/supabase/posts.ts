@@ -1,6 +1,6 @@
 "use client"
 
-import type { Platform, PostStatus } from "@/lib/db"
+import type { Platform, Post, PostStatus } from "@/lib/db"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 
 export type SupabasePostRow = {
@@ -23,6 +23,76 @@ type CreateSupabasePostInput = {
   platforms: Platform[]
   status: Extract<PostStatus, "draft" | "scheduled">
   scheduledAt?: string | null
+}
+
+type ListSupabasePostsInput = {
+  status?: PostStatus
+  limit?: number
+  offset?: number
+  orderBy?: "created_at" | "scheduled_at"
+  ascending?: boolean
+}
+
+const POSTS_SELECT =
+  "id,user_id,title,content,platforms,status,scheduled_at,published_at,fail_reason,created_at,updated_at"
+
+export async function listMySupabasePosts({
+  status,
+  limit,
+  offset = 0,
+  orderBy = "created_at",
+  ascending = false,
+}: ListSupabasePostsInput = {}): Promise<Post[]> {
+  const supabase = createBrowserSupabaseClient()
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    return []
+  }
+
+  let query = supabase
+    .from("posts")
+    .select(POSTS_SELECT)
+    .eq("user_id", user.id)
+
+  if (status) {
+    query = query.eq("status", status)
+  }
+
+  query = query.order(orderBy, { ascending })
+
+  if (typeof limit === "number") {
+    query = query.range(offset, offset + limit - 1)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw error
+  }
+
+  return ((data ?? []) as SupabasePostRow[]).map(mapSupabasePostToPost)
+}
+
+export async function listMyRecentSupabasePosts(limit = 6): Promise<Post[]> {
+  return listMySupabasePosts({ limit, orderBy: "created_at", ascending: false })
+}
+
+export async function listMyScheduledSupabasePosts(): Promise<Post[]> {
+  return listMySupabasePosts({
+    status: "scheduled",
+    orderBy: "scheduled_at",
+    ascending: true,
+  })
+}
+
+export async function hasMySupabasePosts(): Promise<boolean> {
+  const rows = await listMySupabasePosts({ limit: 1 })
+
+  return rows.length > 0
 }
 
 export async function createSupabasePost({
@@ -78,4 +148,21 @@ export async function createSupabasePost({
   }
 
   return data
+}
+
+function mapSupabasePostToPost(row: SupabasePostRow): Post {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    title: row.title,
+    content: row.content,
+    platforms: row.platforms,
+    media_urls: [],
+    status: row.status,
+    scheduled_at: row.scheduled_at,
+    published_at: row.published_at,
+    fail_reason: row.fail_reason,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
 }

@@ -39,6 +39,11 @@ import {
   SUPABASE_PROFILE_CHANGED_EVENT,
 } from "@/lib/supabase/profile"
 import {
+  hasMySupabasePosts,
+  listMyRecentSupabasePosts,
+  listMyScheduledSupabasePosts,
+} from "@/lib/supabase/posts"
+import {
   Plus,
   CalendarClock,
   PlugZap,
@@ -68,8 +73,24 @@ export default function DashboardPage() {
       getUserUsageCredits(),
       listScheduledPosts(),
       getUploadLogs(),
-    ]).then(([currentProfile, posts, accounts, usageRow, scheduledPosts, uploadLogs]) => {
+      listMyRecentSupabasePosts(6).catch(() => []),
+      listMyScheduledSupabasePosts().catch(() => []),
+      hasMySupabasePosts().catch(() => false),
+    ]).then(([
+      currentProfile,
+      mockPosts,
+      accounts,
+      usageRow,
+      mockScheduledPosts,
+      uploadLogs,
+      supabasePosts,
+      supabaseScheduledPosts,
+      hasSupabasePosts,
+    ]) => {
       if (!mounted) return
+      const posts = hasSupabasePosts ? supabasePosts : mockPosts
+      const scheduledPosts = hasSupabasePosts ? supabaseScheduledPosts : mockScheduledPosts
+
       setProfileName(currentProfile?.displayName ?? "사용자")
       setRecentPosts(posts.map(mapPostToUi))
       setSocialAccounts(accounts.map(mapSocialAccountToUi))

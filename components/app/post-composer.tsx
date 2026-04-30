@@ -42,6 +42,10 @@ import {
   schedulePost as scheduleMockPost,
   type Platform,
 } from "@/lib/db"
+import {
+  uploadPostMediaAssets,
+  validatePostMediaFile,
+} from "@/lib/supabase/media-assets"
 import { createSupabasePost } from "@/lib/supabase/posts"
 import {
   Save,
@@ -74,6 +78,7 @@ type MediaItem = {
   size: number
   type: string
   url: string
+  file: File
 }
 
 export function PostComposer() {
@@ -115,21 +120,53 @@ export function PostComposer() {
 
   const handleFiles = (files: FileList | null) => {
     if (!files) return
-    const items: MediaItem[] = Array.from(files)
-      .slice(0, 10 - media.length)
-      .map((f) => ({
-        id: `${f.name}-${f.lastModified}-${Math.random().toString(36).slice(2, 7)}`,
-        name: f.name,
-        size: f.size,
-        type: f.type,
-        url: URL.createObjectURL(f),
-      }))
+    const remainingSlots = 10 - media.length
+
+    if (remainingSlots <= 0) {
+      toast.error("미디어는 최대 10개까지 추가할 수 있습니다.")
+      return
+    }
+
+    const selectedFiles = Array.from(files)
+
+    if (selectedFiles.length > remainingSlots) {
+      toast.error(`최대 10개까지 추가할 수 있어 ${remainingSlots}개만 선택됩니다.`)
+    }
+
+    const errors: string[] = []
+    const items: MediaItem[] = selectedFiles.slice(0, remainingSlots).flatMap((file) => {
+      try {
+        validatePostMediaFile(file)
+
+        return [{
+          id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 7)}`,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          url: URL.createObjectURL(file),
+          file,
+        }]
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : `${file.name}: 업로드할 수 없습니다.`)
+        return []
+      }
+    })
+
     setMedia((m) => [...m, ...items])
     if (items.length > 0) toast.success(`${items.length}개 파일이 추가되었습니다.`)
+    errors.forEach((message) => toast.error(message))
   }
 
   const removeMedia = (id: string) => {
-    setMedia((m) => m.filter((x) => x.id !== id))
+    setMedia((m) => {
+      const item = m.find((x) => x.id === id)
+
+      if (item) {
+        URL.revokeObjectURL(item.url)
+      }
+
+      return m.filter((x) => x.id !== id)
+    })
   }
 
   const buildPostInput = () => ({
@@ -152,12 +189,13 @@ export function PostComposer() {
     setIsSavingDraft(true)
     try {
       const input = buildPostInput()
-      await createSupabasePost({
+      const supabasePost = await createSupabasePost({
         title: input.title,
         content: input.content,
         platforms: input.platforms,
         status: "draft",
       })
+      await uploadSelectedMedia(supabasePost.id)
       await createMockPost(CURRENT_USER, input)
       toast.success("임시저장되었습니다.", {
         description: "Supabase posts 테이블에 draft로 저장되었습니다.",
@@ -201,15 +239,41 @@ export function PostComposer() {
 
   const handleSchedulePost = async (scheduledAt: string) => {
     const input = buildPostInput()
-    await createSupabasePost({
+    const supabasePost = await createSupabasePost({
       title: input.title,
       content: input.content,
       platforms: input.platforms,
       status: "scheduled",
       scheduledAt,
     })
+    await uploadSelectedMedia(supabasePost.id)
     const post = await createMockPost(CURRENT_USER, input)
     await scheduleMockPost(post.id, scheduledAt)
+  }
+
+  const uploadSelectedMedia = async (postId: string) => {
+    const files = media.map((item) => item.file)
+
+    if (files.length === 0) {
+      return
+    }
+
+    const toastId = toast.loading(`${files.length}개 미디어를 업로드하는 중입니다.`)
+
+    try {
+      const assets = await uploadPostMediaAssets({ postId, files })
+
+      toast.success(`${assets.length}개 미디어가 업로드되었습니다.`, {
+        id: toastId,
+        description: "Supabase Storage와 media_assets에 연결되었습니다.",
+      })
+    } catch (error) {
+      toast.error("미디어 업로드에 실패했습니다", {
+        id: toastId,
+        description: error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요.",
+      })
+      throw error
+    }
   }
 
   const insertHashtagSet = (tags: string) => {
@@ -321,9 +385,12 @@ export function PostComposer() {
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept="image/*,video/*"
+                    accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
                     className="hidden"
-                    onChange={(e) => handleFiles(e.target.files)}
+                    onChange={(e) => {
+                      handleFiles(e.target.files)
+                      e.currentTarget.value = ""
+                    }}
                   />
                   {media.length > 0 && (
                     <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
@@ -452,6 +519,7 @@ export function PostComposer() {
           totalChars={totalChars}
           minLimit={minLimit}
           mediaUrl={media[0]?.url}
+          mediaType={media[0]?.type}
         />
       </div>
     </TooltipProvider>
@@ -568,8 +636,11 @@ function DropZone({
     <div
       role="button"
       tabIndex={0}
-      onClick={onClick}
+      onClick={() => {
+        if (!full) onClick()
+      }}
       onKeyDown={(e) => {
+        if (full) return
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault()
           onClick()
@@ -605,7 +676,9 @@ function DropZone({
       <p className="text-sm font-medium text-foreground">
         {full ? "최대 10개까지 업로드 가능" : "파일을 끌어다 놓거나 클릭해서 업로드"}
       </p>
-      <p className="text-xs text-muted-foreground">JPG · PNG · MP4 · 최대 100MB · 최대 10개</p>
+      <p className="text-xs text-muted-foreground">
+        JPG · PNG · WebP 최대 10MB, MP4 · MOV · WebM 최대 300MB
+      </p>
     </div>
   )
 }
@@ -768,6 +841,7 @@ function PreviewPanel({
   totalChars,
   minLimit,
   mediaUrl,
+  mediaType,
 }: {
   title: string
   body: string
@@ -776,6 +850,7 @@ function PreviewPanel({
   totalChars: number
   minLimit: number
   mediaUrl?: string
+  mediaType?: string
 }) {
   const [activeTab, setActiveTab] = useState<Platform | "all">(platforms[0] ?? "all")
   const visiblePlatform = platforms.includes(activeTab as Platform)
@@ -830,6 +905,7 @@ function PreviewPanel({
             hashtags={hashtags}
             platform={visiblePlatform}
             mediaUrl={mediaUrl}
+            mediaType={mediaType}
           />
 
           <div className="mt-5">
@@ -868,12 +944,14 @@ function PreviewCard({
   hashtags,
   platform,
   mediaUrl,
+  mediaType,
 }: {
   title: string
   body: string
   hashtags: string
   platform: Platform
   mediaUrl?: string
+  mediaType?: string
 }) {
   // Style varies subtly by platform for realism
   const isX = platform === "x"
@@ -898,7 +976,9 @@ function PreviewCard({
 
       {/* Media */}
       <div className="aspect-[4/3] overflow-hidden border-y border-border bg-secondary/40">
-        {mediaUrl ? (
+        {mediaUrl && mediaType?.startsWith("video") ? (
+          <video src={mediaUrl} className="h-full w-full object-cover" muted />
+        ) : mediaUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={mediaUrl} alt="첨부 이미지" className="h-full w-full object-cover" />
         ) : (
