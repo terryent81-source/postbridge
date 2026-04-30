@@ -29,12 +29,17 @@ export type SupabaseMediaAssetRow = {
   updated_at: string
 }
 
+export type SupabaseMediaAssetPreview = SupabaseMediaAssetRow & {
+  signedUrl?: string
+}
+
 export type UploadPostMediaInput = {
   postId: string
   files: File[]
 }
 
 const POST_MEDIA_BUCKET = "post-media"
+const SIGNED_URL_EXPIRES_IN_SECONDS = 60 * 60
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024
 const VIDEO_MAX_BYTES = 300 * 1024 * 1024
 
@@ -126,6 +131,74 @@ export async function uploadPostMediaAssets({
   }
 
   return uploadedRows
+}
+
+export async function listAttachedMediaAssetsForPosts(
+  postIds: string[],
+): Promise<Record<string, SupabaseMediaAssetPreview[]>> {
+  const uniquePostIds = Array.from(new Set(postIds)).filter(Boolean)
+
+  if (uniquePostIds.length === 0) {
+    return {}
+  }
+
+  const supabase = createBrowserSupabaseClient()
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    return {}
+  }
+
+  const { data, error } = await supabase
+    .from("media_assets")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("status", "attached")
+    .in("post_id", uniquePostIds)
+    .order("created_at", { ascending: true })
+
+  if (error) {
+    throw error
+  }
+
+  const rows = ((data ?? []) as SupabaseMediaAssetRow[]).filter(
+    (asset): asset is SupabaseMediaAssetRow & { post_id: string } => Boolean(asset.post_id),
+  )
+  const rowsWithSignedUrls = await Promise.all(
+    rows.map(async (asset) => ({
+      ...asset,
+      signedUrl:
+        asset.media_type === "image"
+          ? await createSignedImageUrl(asset.storage_bucket, asset.storage_path)
+          : undefined,
+    })),
+  )
+
+  return rowsWithSignedUrls.reduce<Record<string, SupabaseMediaAssetPreview[]>>(
+    (grouped, asset) => {
+      grouped[asset.post_id] ??= []
+      grouped[asset.post_id].push(asset)
+
+      return grouped
+    },
+    {},
+  )
+}
+
+async function createSignedImageUrl(storageBucket: string, storagePath: string) {
+  const supabase = createBrowserSupabaseClient()
+  const { data, error } = await supabase.storage
+    .from(storageBucket)
+    .createSignedUrl(storagePath, SIGNED_URL_EXPIRES_IN_SECONDS)
+
+  if (error) {
+    return undefined
+  }
+
+  return data.signedUrl
 }
 
 function buildStorageFileName(fileName: string) {

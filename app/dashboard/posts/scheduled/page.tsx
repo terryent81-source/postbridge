@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { PlatformIcon } from "@/components/platform-icon"
 import { EmptyState } from "@/components/app/empty-state"
+import { PostMediaSummary } from "@/components/app/post-media-summary"
 import { listScheduledPosts, mapPostToUi, MOCK_DB_CHANGED_EVENT, type UiPost } from "@/lib/db"
-import { hasMySupabasePosts, listMyScheduledSupabasePosts } from "@/lib/supabase/posts"
+import { hasMySupabasePosts, listMyScheduledSupabasePostsWithMedia } from "@/lib/supabase/posts"
+import type { SupabaseMediaAssetPreview } from "@/lib/supabase/media-assets"
 import {
   CalendarDays,
   CalendarX,
@@ -22,6 +24,10 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+
+type ScheduledUiPost = UiPost & {
+  mediaAssets?: SupabaseMediaAssetPreview[]
+}
 
 const WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
 
@@ -40,18 +46,25 @@ function buildMay2026() {
 
 export default function ScheduledPage() {
   const [view, setView] = useState<"calendar" | "list">("calendar")
-  const [posts, setPosts] = useState<UiPost[]>([])
+  const [posts, setPosts] = useState<ScheduledUiPost[]>([])
   const days = buildMay2026()
 
   useEffect(() => {
     let mounted = true
     const loadPosts = () => Promise.all([
       listScheduledPosts(),
-      listMyScheduledSupabasePosts().catch(() => []),
+      listMyScheduledSupabasePostsWithMedia().catch(() => []),
       hasMySupabasePosts().catch(() => false),
     ]).then(([mockRows, supabaseRows, hasSupabasePosts]) => {
       if (mounted) {
-        setPosts((hasSupabasePosts ? supabaseRows : mockRows).map(mapPostToUi))
+        setPosts(
+          hasSupabasePosts
+            ? supabaseRows.map(({ post, mediaAssets }) => ({
+                ...mapPostToUi(post),
+                mediaAssets,
+              }))
+            : mockRows.map(mapPostToUi),
+        )
       }
     })
     loadPosts()
@@ -62,7 +75,7 @@ export default function ScheduledPage() {
     }
   }, [])
 
-  const postsByDay: Record<string, UiPost[]> = {}
+  const postsByDay: Record<string, ScheduledUiPost[]> = {}
   posts.forEach((p) => {
     if (!p.scheduledAt) return
     const date = p.scheduledAt.split(" ")[0]
@@ -185,6 +198,11 @@ export default function ScheduledPage() {
                               className="h-3.5 w-3.5 rounded-sm"
                             />
                             <span className="truncate">{p.title}</span>
+                            {(p.mediaAssets?.length ?? 0) > 0 && (
+                              <span className="ml-auto shrink-0 rounded bg-primary/15 px-1 text-[10px]">
+                                {p.mediaAssets?.length}
+                              </span>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -220,6 +238,12 @@ export default function ScheduledPage() {
                     <div className="flex-1">
                       <h3 className="font-semibold text-foreground">{p.title}</h3>
                       <p className="mt-1 text-xs text-muted-foreground">생성일 {p.createdAt}</p>
+                      {(p.mediaAssets?.length ?? 0) > 0 && (
+                        <PostMediaSummary
+                          mediaAssets={p.mediaAssets}
+                          className="mt-3 max-w-md"
+                        />
+                      )}
                       <div className="mt-3 flex flex-wrap gap-1.5">
                         {p.platforms.map((pl) => (
                           <span

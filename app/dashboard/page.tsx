@@ -22,6 +22,7 @@ import {
 import { StatusBadge } from "@/components/app/status-badge"
 import { PlatformIcon } from "@/components/platform-icon"
 import { WeeklyUploadCounter } from "@/components/app/weekly-upload-counter"
+import { PostMediaSummary } from "@/components/app/post-media-summary"
 import {
   getPosts,
   getSocialAccounts,
@@ -40,9 +41,10 @@ import {
 } from "@/lib/supabase/profile"
 import {
   hasMySupabasePosts,
-  listMyRecentSupabasePosts,
-  listMyScheduledSupabasePosts,
+  listMyRecentSupabasePostsWithMedia,
+  listMyScheduledSupabasePostsWithMedia,
 } from "@/lib/supabase/posts"
+import type { SupabaseMediaAssetPreview } from "@/lib/supabase/media-assets"
 import {
   Plus,
   CalendarClock,
@@ -56,9 +58,13 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
+type DashboardUiPost = UiPost & {
+  mediaAssets?: SupabaseMediaAssetPreview[]
+}
+
 export default function DashboardPage() {
   const [profileName, setProfileName] = useState("사용자")
-  const [recentPosts, setRecentPosts] = useState<UiPost[]>([])
+  const [recentPosts, setRecentPosts] = useState<DashboardUiPost[]>([])
   const [socialAccounts, setSocialAccounts] = useState<UiSocialAccount[]>([])
   const [usage, setUsage] = useState({ used: 0, total: 3 })
   const [scheduledCount, setScheduledCount] = useState(0)
@@ -73,8 +79,8 @@ export default function DashboardPage() {
       getUserUsageCredits(),
       listScheduledPosts(),
       getUploadLogs(),
-      listMyRecentSupabasePosts(6).catch(() => []),
-      listMyScheduledSupabasePosts().catch(() => []),
+      listMyRecentSupabasePostsWithMedia(6).catch(() => []),
+      listMyScheduledSupabasePostsWithMedia().catch(() => []),
       hasMySupabasePosts().catch(() => false),
     ]).then(([
       currentProfile,
@@ -88,11 +94,18 @@ export default function DashboardPage() {
       hasSupabasePosts,
     ]) => {
       if (!mounted) return
-      const posts = hasSupabasePosts ? supabasePosts : mockPosts
-      const scheduledPosts = hasSupabasePosts ? supabaseScheduledPosts : mockScheduledPosts
+      const posts: DashboardUiPost[] = hasSupabasePosts
+        ? supabasePosts.map(({ post, mediaAssets }) => ({
+            ...mapPostToUi(post),
+            mediaAssets,
+          }))
+        : mockPosts.map(mapPostToUi)
+      const scheduledCount = hasSupabasePosts
+        ? supabaseScheduledPosts.length
+        : mockScheduledPosts.length
 
       setProfileName(currentProfile?.displayName ?? "사용자")
-      setRecentPosts(posts.map(mapPostToUi))
+      setRecentPosts(posts)
       setSocialAccounts(accounts.map(mapSocialAccountToUi))
       setUsage({
         used: usageRow.used_count,
@@ -101,7 +114,7 @@ export default function DashboardPage() {
             ? usageRow.used_count + usageRow.bonus_count
             : usageRow.plan_limit + usageRow.bonus_count,
       })
-      setScheduledCount(scheduledPosts.length)
+      setScheduledCount(scheduledCount)
       setFailedCount(uploadLogs.filter((log) => log.status === "failed").length)
     })
     loadDashboard()
@@ -244,6 +257,7 @@ export default function DashboardPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>게시물 제목</TableHead>
+                      <TableHead className="hidden lg:table-cell">미디어</TableHead>
                       <TableHead>플랫폼</TableHead>
                       <TableHead>상태</TableHead>
                       <TableHead className="hidden md:table-cell">예약 시간</TableHead>
@@ -257,6 +271,13 @@ export default function DashboardPage() {
                           <span className="line-clamp-1 font-medium text-foreground">
                             {p.title}
                           </span>
+                          <PostMediaSummary
+                            mediaAssets={p.mediaAssets}
+                            className="mt-2 lg:hidden"
+                          />
+                        </TableCell>
+                        <TableCell className="hidden min-w-[180px] lg:table-cell">
+                          <PostMediaSummary mediaAssets={p.mediaAssets} />
                         </TableCell>
                         <TableCell>
                           <div className="flex -space-x-1.5">

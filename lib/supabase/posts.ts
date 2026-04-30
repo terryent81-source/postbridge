@@ -2,6 +2,10 @@
 
 import type { Platform, Post, PostStatus } from "@/lib/db"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
+import {
+  listAttachedMediaAssetsForPosts,
+  type SupabaseMediaAssetPreview,
+} from "@/lib/supabase/media-assets"
 
 export type SupabasePostRow = {
   id: string
@@ -31,6 +35,11 @@ type ListSupabasePostsInput = {
   offset?: number
   orderBy?: "created_at" | "scheduled_at"
   ascending?: boolean
+}
+
+export type SupabasePostWithMedia = {
+  post: Post
+  mediaAssets: SupabaseMediaAssetPreview[]
 }
 
 const POSTS_SELECT =
@@ -77,12 +86,44 @@ export async function listMySupabasePosts({
   return ((data ?? []) as SupabasePostRow[]).map(mapSupabasePostToPost)
 }
 
+export async function listMySupabasePostsWithMedia(
+  input: ListSupabasePostsInput = {},
+): Promise<SupabasePostWithMedia[]> {
+  const posts = await listMySupabasePosts(input)
+  const mediaAssetsByPostId = await listAttachedMediaAssetsForPosts(
+    posts.map((post) => post.id),
+  )
+
+  return posts.map((post) => ({
+    post,
+    mediaAssets: mediaAssetsByPostId[post.id] ?? [],
+  }))
+}
+
 export async function listMyRecentSupabasePosts(limit = 6): Promise<Post[]> {
   return listMySupabasePosts({ limit, orderBy: "created_at", ascending: false })
 }
 
+export async function listMyRecentSupabasePostsWithMedia(
+  limit = 6,
+): Promise<SupabasePostWithMedia[]> {
+  return listMySupabasePostsWithMedia({
+    limit,
+    orderBy: "created_at",
+    ascending: false,
+  })
+}
+
 export async function listMyScheduledSupabasePosts(): Promise<Post[]> {
   return listMySupabasePosts({
+    status: "scheduled",
+    orderBy: "scheduled_at",
+    ascending: true,
+  })
+}
+
+export async function listMyScheduledSupabasePostsWithMedia(): Promise<SupabasePostWithMedia[]> {
+  return listMySupabasePostsWithMedia({
     status: "scheduled",
     orderBy: "scheduled_at",
     ascending: true,
