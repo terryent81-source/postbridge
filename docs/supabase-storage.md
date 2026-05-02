@@ -115,6 +115,36 @@ Required server environment variables:
 
 The route only selects rows where `status = 'pending_delete'`, `delete_after <= now()`, and `deleted_at is null`. It removes objects from the private `post-media` bucket with the Supabase Storage API and marks successful rows as `status = 'deleted'`, `deleted_at = now()`. Failed rows stay `pending_delete` so a later scheduler run can retry.
 
+## Scheduled Publish Route
+
+The app also includes a server-only route for scheduled mock publishing:
+
+```txt
+POST /api/scheduled/publish
+x-scheduled-publish-secret: ${SCHEDULED_PUBLISH_SECRET}
+```
+
+Required server environment variables:
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SCHEDULED_PUBLISH_SECRET`
+
+The route selects up to 10 posts where `status = 'scheduled'` and `scheduled_at <= now()`. It keeps the current mock SNS publish behavior, writes one `upload_logs` row per target platform, consumes one weekly upload credit only after a successful mock publish, marks successful posts as `published`, and marks failed posts as `failed` with `fail_reason`.
+
+Media cleanup timing matches the Storage policy:
+
+- Successful scheduled publish: `media_assets.status = 'pending_delete'`, `delete_after = now()`.
+- Failed scheduled publish: `media_assets.status = 'pending_delete'`, `delete_after = now() + 72 hours`.
+
+Local PowerShell example:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:3000/api/scheduled/publish" `
+  -Headers @{ "x-scheduled-publish-secret" = $env:SCHEDULED_PUBLISH_SECRET }
+```
+
 ## Security Notes
 
 - Storage policies protect user folder boundaries.
@@ -122,3 +152,4 @@ The route only selects rows where `status = 'pending_delete'`, `delete_after <= 
 - Browser clients cannot delete `media_assets` rows or Storage objects.
 - Server routes and cleanup workers are responsible for final deletion and deleted-state updates.
 - `SUPABASE_SERVICE_ROLE_KEY` must exist only in server runtime configuration, never in browser-visible variables.
+- `SCHEDULED_PUBLISH_SECRET` must be stored only as a server/runtime secret and sent only by the scheduler.
