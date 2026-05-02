@@ -99,9 +99,26 @@ Recommended server-side steps:
 3. If remove succeeds, set `status = 'deleted'`, `deleted_at = now()`.
 4. If remove fails, keep the row and retry later.
 
+## Cleanup Route
+
+The app includes a server-only cleanup route for Vercel Cron or an external scheduler:
+
+```txt
+POST /api/cleanup/media
+x-cleanup-secret: ${CLEANUP_SECRET}
+```
+
+Required server environment variables:
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `CLEANUP_SECRET`
+
+The route only selects rows where `status = 'pending_delete'`, `delete_after <= now()`, and `deleted_at is null`. It removes objects from the private `post-media` bucket with the Supabase Storage API and marks successful rows as `status = 'deleted'`, `deleted_at = now()`. Failed rows stay `pending_delete` so a later scheduler run can retry.
+
 ## Security Notes
 
 - Storage policies protect user folder boundaries.
 - `media_assets` RLS protects metadata boundaries.
 - Browser clients cannot delete `media_assets` rows or Storage objects.
 - Server routes and cleanup workers are responsible for final deletion and deleted-state updates.
+- `SUPABASE_SERVICE_ROLE_KEY` must exist only in server runtime configuration, never in browser-visible variables.

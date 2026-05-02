@@ -28,6 +28,10 @@ import {
   type UiUploadLog,
   type UploadStatus,
 } from "@/lib/db"
+import {
+  listMySupabaseUploadLogsWithPosts,
+  SUPABASE_UPLOAD_LOGS_CHANGED_EVENT,
+} from "@/lib/supabase/upload-logs"
 import { Download, RotateCw, Search, FileX2 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -52,17 +56,29 @@ export default function HistoryPage() {
 
   useEffect(() => {
     let mounted = true
-    const loadLogs = () => getUploadLogs().then(async (rows) => {
+    const loadLogs = async () => {
+      const supabaseRows = await listMySupabaseUploadLogsWithPosts().catch(() => [])
+
+      if (supabaseRows.length > 0) {
+        if (mounted) {
+          setLogs(supabaseRows.map(({ log, post }) => mapUploadLogToUi(log, post)))
+        }
+        return
+      }
+
+      const rows = await getUploadLogs()
       const mapped = await Promise.all(
         rows.map(async (log) => mapUploadLogToUi(log, await getPost(log.post_id))),
       )
       if (mounted) setLogs(mapped)
-    })
+    }
     loadLogs()
     window.addEventListener(MOCK_DB_CHANGED_EVENT, loadLogs)
+    window.addEventListener(SUPABASE_UPLOAD_LOGS_CHANGED_EVENT, loadLogs)
     return () => {
       mounted = false
       window.removeEventListener(MOCK_DB_CHANGED_EVENT, loadLogs)
+      window.removeEventListener(SUPABASE_UPLOAD_LOGS_CHANGED_EVENT, loadLogs)
     }
   }, [])
 
