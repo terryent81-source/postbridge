@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,15 +10,26 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { BrandLogo } from "@/components/brand-logo"
-import { signInWithEmailPassword } from "@/lib/supabase/auth"
+import { signInWithEmailPassword, signInWithGoogleOAuth } from "@/lib/supabase/auth"
 
 export default function LoginPage() {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false)
+  const [oauthError, setOauthError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const error = new URLSearchParams(window.location.search).get("error")
+
+    if (error === "oauth") {
+      setOauthError("Google login failed. Please try again.")
+    }
+  }, [])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setIsSubmitting(true)
+    setOauthError(null)
 
     const formData = new FormData(event.currentTarget)
     const email = String(formData.get("email") ?? "").trim()
@@ -44,6 +55,29 @@ export default function LoginPage() {
       })
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    setIsGoogleSubmitting(true)
+    setOauthError(null)
+
+    try {
+      const nextPath = getSafeNextPath(
+        new URLSearchParams(window.location.search).get("next"),
+      )
+      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`
+      const { error } = await signInWithGoogleOAuth(redirectTo)
+
+      if (error) {
+        setOauthError(error.message)
+        setIsGoogleSubmitting(false)
+      }
+    } catch (error) {
+      setOauthError(
+        error instanceof Error ? error.message : "Google login failed. Please try again.",
+      )
+      setIsGoogleSubmitting(false)
     }
   }
 
@@ -92,9 +126,25 @@ export default function LoginPage() {
               <Separator className="flex-1" />
             </div>
 
-            <Button variant="outline" size="lg" className="w-full gap-2 bg-card">
+            {oauthError ? (
+              <p
+                role="alert"
+                className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              >
+                {oauthError}
+              </p>
+            ) : null}
+
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="w-full gap-2 bg-card"
+              disabled={isSubmitting || isGoogleSubmitting}
+              onClick={handleGoogleSignIn}
+            >
               <GoogleIcon />
-              Google로 계속하기
+              {isGoogleSubmitting ? "Connecting to Google..." : "Google로 계속하기"}
             </Button>
 
             <p className="mt-6 text-center text-sm text-muted-foreground">

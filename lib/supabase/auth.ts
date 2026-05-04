@@ -19,6 +19,17 @@ export async function signInWithEmailPassword(email: string, password: string) {
   })
 }
 
+export async function signInWithGoogleOAuth(redirectTo: string) {
+  const supabase = createBrowserSupabaseClient()
+
+  return supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo,
+    },
+  })
+}
+
 export async function signUpWithEmailPassword({
   email,
   password,
