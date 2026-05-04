@@ -1,0 +1,58 @@
+name: PostBridge Scheduled Publish
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postbridge-scheduled-publish
+  cancel-in-progress: false
+
+jobs:
+  scheduled-publish:
+    name: Run scheduled publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      POSTBRIDGE_BASE_URL: ${{ secrets.POSTBRIDGE_BASE_URL }}
+      SCHEDULED_PUBLISH_SECRET: ${{ secrets.SCHEDULED_PUBLISH_SECRET }}
+
+    steps:
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          missing=0
+
+          if [ -z "${POSTBRIDGE_BASE_URL}" ]; then
+            echo "Missing GitHub Secret: POSTBRIDGE_BASE_URL" >&2
+            missing=1
+          fi
+
+          if [ -z "${SCHEDULED_PUBLISH_SECRET}" ]; then
+            echo "Missing GitHub Secret: SCHEDULED_PUBLISH_SECRET" >&2
+            missing=1
+          fi
+
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Call scheduled publish worker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_url="${POSTBRIDGE_BASE_URL%/}"
+          echo "Calling scheduled publish worker..."
+
+          curl -fsS \
+            -X POST \
+            -H "x-scheduled-publish-secret: ${SCHEDULED_PUBLISH_SECRET}" \
+            "${base_url}/api/scheduled/publish" \
+            | tee scheduled-publish-response.json

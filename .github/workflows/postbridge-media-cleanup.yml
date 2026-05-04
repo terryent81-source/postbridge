@@ -1,0 +1,58 @@
+name: PostBridge Media Cleanup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "2,32 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postbridge-media-cleanup
+  cancel-in-progress: false
+
+jobs:
+  media-cleanup:
+    name: Run media cleanup
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      POSTBRIDGE_BASE_URL: ${{ secrets.POSTBRIDGE_BASE_URL }}
+      CLEANUP_SECRET: ${{ secrets.CLEANUP_SECRET }}
+
+    steps:
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          missing=0
+
+          if [ -z "${POSTBRIDGE_BASE_URL}" ]; then
+            echo "Missing GitHub Secret: POSTBRIDGE_BASE_URL" >&2
+            missing=1
+          fi
+
+          if [ -z "${CLEANUP_SECRET}" ]; then
+            echo "Missing GitHub Secret: CLEANUP_SECRET" >&2
+            missing=1
+          fi
+
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Call media cleanup worker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_url="${POSTBRIDGE_BASE_URL%/}"
+          echo "Calling media cleanup worker..."
+
+          curl -fsS \
+            -X POST \
+            -H "x-cleanup-secret: ${CLEANUP_SECRET}" \
+            "${base_url}/api/cleanup/media" \
+            | tee media-cleanup-response.json

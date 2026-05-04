@@ -126,12 +126,27 @@ C:\Users\yong\Desktop\postbridge
 
 PostBridge is currently deployed to Vercel Hobby. Vercel Cron on the Hobby plan is limited to one cron execution per day, so it is not enough for 5-minute scheduled publishing. Use GitHub Actions as the external scheduler for the deployed app.
 
-The repository includes `.github/workflows/postbridge-scheduler.yml`.
+The repository includes two GitHub Actions workflows:
 
-- `workflow_dispatch` allows manual runs from the GitHub Actions tab.
-- `schedule` runs the workflow every 5 minutes with `*/5 * * * *`.
-- A second schedule entry, `0,30 * * * *`, runs media cleanup every 30 minutes.
-- Scheduled publish and media cleanup are separate jobs in the same workflow.
+- `.github/workflows/postbridge-scheduled-publish.yml`
+- `.github/workflows/postbridge-media-cleanup.yml`
+
+Both workflows include `workflow_dispatch`, so they can be run manually from the GitHub Actions tab.
+
+Scheduled publish:
+
+- Runs every 5 minutes with `*/5 * * * *`.
+- Calls `/api/scheduled/publish`.
+- Sends `x-scheduled-publish-secret`.
+
+Media cleanup:
+
+- Runs every 30 minutes with `2,32 * * * *`.
+- Calls `/api/cleanup/media`.
+- Sends `x-cleanup-secret`.
+
+GitHub Actions schedules use UTC. GitHub may also delay scheduled workflow runs by a few minutes when Actions has high load.
+
 - Each API call uses `curl -f` so failed HTTP responses fail the workflow.
 - Response bodies are printed in the Actions log so `scanned`, `published`, `failed`, and `deleted` results can be checked.
 
@@ -155,10 +170,10 @@ Repository -> Settings -> Secrets and variables -> Actions -> New repository sec
 
 1. Open the repository on GitHub.
 2. Go to **Actions**.
-3. Select **PostBridge Scheduler**.
+3. Select **PostBridge Scheduled Publish** or **PostBridge Media Cleanup**.
 4. Click **Run workflow**.
 
-The manual run calls both `/api/scheduled/publish` and `/api/cleanup/media` immediately.
+Manual runs call only the selected workflow's worker route.
 
 ### Worker Calls
 
