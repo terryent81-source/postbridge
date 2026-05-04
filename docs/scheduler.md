@@ -122,19 +122,58 @@ Start in:
 C:\Users\yong\Desktop\postbridge
 ```
 
-## Vercel Cron
+## GitHub Actions Scheduler
 
-After deployment, prefer Vercel Cron or an external scheduler over Windows Task Scheduler.
+PostBridge is currently deployed to Vercel Hobby. Vercel Cron on the Hobby plan is limited to one cron execution per day, so it is not enough for 5-minute scheduled publishing. Use GitHub Actions as the external scheduler for the deployed app.
 
-The cron jobs should call:
+The repository includes `.github/workflows/postbridge-scheduler.yml`.
 
-- `/api/scheduled/publish` every 5 minutes.
-- `/api/cleanup/media` every 10 or 30 minutes.
+- `workflow_dispatch` allows manual runs from the GitHub Actions tab.
+- `schedule` runs the workflow every 5 minutes with `*/5 * * * *`.
+- A second schedule entry, `0,30 * * * *`, runs media cleanup every 30 minutes.
+- Scheduled publish and media cleanup are separate jobs in the same workflow.
+- Each API call uses `curl -f` so failed HTTP responses fail the workflow.
+- Response bodies are printed in the Actions log so `scanned`, `published`, `failed`, and `deleted` results can be checked.
 
-Store these as Vercel environment variables:
+### Required GitHub Secrets
 
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SCHEDULED_PUBLISH_SECRET`
-- `CLEANUP_SECRET`
+Register these three repository secrets in GitHub:
 
-The scheduler must send the matching secret header with each request. Keep SNS publishing mocked until the real provider APIs are added.
+```txt
+POSTBRIDGE_BASE_URL=https://postbridge-rose.vercel.app
+SCHEDULED_PUBLISH_SECRET=Vercel에 넣은 SCHEDULED_PUBLISH_SECRET과 같은 값
+CLEANUP_SECRET=Vercel에 넣은 CLEANUP_SECRET과 같은 값
+```
+
+GitHub path:
+
+```txt
+Repository -> Settings -> Secrets and variables -> Actions -> New repository secret
+```
+
+### Manual Run
+
+1. Open the repository on GitHub.
+2. Go to **Actions**.
+3. Select **PostBridge Scheduler**.
+4. Click **Run workflow**.
+
+The manual run calls both `/api/scheduled/publish` and `/api/cleanup/media` immediately.
+
+### Worker Calls
+
+Scheduled publish:
+
+```txt
+POST ${POSTBRIDGE_BASE_URL}/api/scheduled/publish
+x-scheduled-publish-secret: ${SCHEDULED_PUBLISH_SECRET}
+```
+
+Media cleanup:
+
+```txt
+POST ${POSTBRIDGE_BASE_URL}/api/cleanup/media
+x-cleanup-secret: ${CLEANUP_SECRET}
+```
+
+Keep these same secret values configured in Vercel environment variables. Vercel still hosts the API routes; GitHub Actions only triggers them on the required schedule.
