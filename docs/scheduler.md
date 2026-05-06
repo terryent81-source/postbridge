@@ -16,8 +16,8 @@ x-scheduled-publish-secret: ${SCHEDULED_PUBLISH_SECRET}
 - Runs mock publish for up to 10 posts where `posts.status = 'scheduled'` and `scheduled_at <= now()`.
 - Writes one `upload_logs` row per platform.
 - Consumes one upload credit only when the scheduled mock publish succeeds.
-- Marks successful post media as `pending_delete` with `delete_after = now()`.
-- Marks failed post media as `pending_delete` with `delete_after = now() + 72 hours`.
+- Marks successful post media for cleanup. The cleanup route deletes published media immediately.
+- Marks failed post media for cleanup. The cleanup route keeps failed media for 24 hours.
 
 Media cleanup worker:
 
@@ -26,8 +26,12 @@ POST /api/cleanup/media
 x-cleanup-secret: ${CLEANUP_SECRET}
 ```
 
-- Deletes Storage objects for `media_assets.status = 'pending_delete'` where `delete_after <= now()`.
-- Marks successfully removed rows as `media_assets.status = 'deleted'`.
+- Deletes published post media immediately.
+- Keeps scheduled post media until the scheduled publish attempt runs.
+- Deletes draft and failed post media after 24 hours, while keeping the `posts` and `upload_logs` rows.
+- Deletes orphan Storage objects older than 1 hour when they are not connected to `media_assets` and `posts`.
+- Marks successfully removed `media_assets` rows as `status = 'deleted'`, `deleted_at = now()`.
+- Returns `scanned`, `deleted`, `skipped`, `errors`, `deleted_files`, and `skipped_reasons`.
 
 ## Local Scripts
 

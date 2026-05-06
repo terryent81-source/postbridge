@@ -50,9 +50,9 @@ Supabase bucket-level `file_size_limit` is set to 300 MB because it cannot expre
    - `delete_after`
 3. Posts link to files through `media_assets.post_id`, not `posts.media_urls`.
 4. Upload workers use `media_assets` rows for SNS upload jobs.
-5. Immediate upload success marks assets as `pending_delete` with `delete_after = now()`.
-6. Upload failure marks assets as `pending_delete` with `delete_after` about 72 hours later.
-7. Draft and scheduled assets remain `attached` until the user publishes, the schedule runs, or a future draft cleanup policy marks them for deletion.
+5. Published post media is removed by the cleanup worker immediately.
+6. Failed post media is kept for 24 hours, then removed by the cleanup worker.
+7. Draft media is kept for 24 hours after the draft was last updated. Scheduled media is kept until the scheduled publish attempt runs.
 
 ## Deletion Policy
 
@@ -75,22 +75,20 @@ Deletion timing:
 
 - Immediate upload success: set `delete_after = now()`.
 - Scheduled upload success: set `delete_after = now()`.
-- Upload failed: keep for 72 hours, then delete.
-- Draft assets: keep while the draft exists. A future cleanup policy may mark stale drafts after a retention period.
+- Upload failed: keep for 24 hours after the post enters `failed`, then delete.
+- Draft assets: keep for 24 hours after the draft was last updated, then delete.
 - Scheduled assets: keep until scheduled execution finishes.
+- Orphan Storage objects: delete after 1 hour if they are not connected to `media_assets` and `posts`.
 
 ## Cleanup Worker Query
 
-The cleanup worker should periodically find candidates:
+The cleanup worker should periodically find candidates by joining `media_assets` to `posts` and checking post status:
 
-```sql
-select id, storage_bucket, storage_path
-from public.media_assets
-where deleted_at is null
-  and delete_after is not null
-  and delete_after <= now()
-  and status = 'pending_delete';
-```
+- `published`: delete immediately.
+- `scheduled`: keep.
+- `draft`: delete after 24 hours based on `posts.updated_at`.
+- `failed`: delete after 24 hours based on `posts.updated_at`.
+- orphan Storage objects: delete after 1 hour if no live `media_assets` and `posts` connection exists.
 
 Recommended server-side steps:
 
@@ -113,7 +111,7 @@ Required server environment variables:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `CLEANUP_SECRET`
 
-The route only selects rows where `status = 'pending_delete'`, `delete_after <= now()`, and `deleted_at is null`. It removes objects from the private `post-media` bucket with the Supabase Storage API and marks successful rows as `status = 'deleted'`, `deleted_at = now()`. Failed rows stay `pending_delete` so a later scheduler run can retry.
+The route uses the server-only service-role Supabase client. It removes objects from the private `post-media` bucket with the Supabase Storage API and marks successful `media_assets` rows as `status = 'deleted'`, `deleted_at = now()`. It does not delete `posts` rows or `upload_logs` rows. Failed Storage removals are reported in the JSON response and can be retried by the next scheduler run.
 
 ## Scheduled Publish Route
 
@@ -133,8 +131,8 @@ The route selects up to 10 posts where `status = 'scheduled'` and `scheduled_at 
 
 Media cleanup timing matches the Storage policy:
 
-- Successful scheduled publish: `media_assets.status = 'pending_delete'`, `delete_after = now()`.
-- Failed scheduled publish: `media_assets.status = 'pending_delete'`, `delete_after = now() + 72 hours`.
+- Successful scheduled publish: cleanup deletes the published post media immediately.
+- Failed scheduled publish: cleanup keeps media for 24 hours after the post becomes `failed`.
 
 Local PowerShell example:
 
