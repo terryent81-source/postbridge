@@ -9,11 +9,11 @@ export function createSupabaseServiceRoleClient() {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
   if (!supabaseUrl) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL")
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL_MISSING")
   }
 
   if (!serviceRoleKey) {
-    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY")
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY_MISSING")
   }
 
   serviceRoleClient ??= createClient(supabaseUrl, serviceRoleKey, {

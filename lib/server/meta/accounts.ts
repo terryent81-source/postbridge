@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { SupabaseClient } from "@supabase/supabase-js"
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js"
 import type { Platform } from "@/lib/db"
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role"
 import { getMetaGraphApiVersion } from "@/lib/server/upload/mode"
@@ -60,10 +60,33 @@ type GraphErrorPayload = {
   }
 }
 
+type SocialAccountSecretRpcRow = {
+  access_token?: string | null
+  refresh_token?: string | null
+  scopes?: string[] | null
+  provider_account_id?: string | null
+  raw_provider_payload?: unknown
+}
+
 export class MetaGraphRequestError extends Error {
   constructor(readonly details: MetaErrorDetails) {
     super(details.message)
     this.name = "MetaGraphRequestError"
+  }
+}
+
+export class MetaSupabasePersistError extends Error {
+  constructor(
+    readonly step: string,
+    readonly details: {
+      code?: string
+      message: string
+      details?: string | null
+      hint?: string | null
+    },
+  ) {
+    super(formatSupabaseErrorDetails(details))
+    this.name = "MetaSupabasePersistError"
   }
 }
 
@@ -239,6 +262,31 @@ function sanitizeOptional(value: string | undefined) {
   return value ? sanitizeSensitiveText(value) : undefined
 }
 
+function throwSupabasePersistError(step: string, error: PostgrestError): never {
+  throw new MetaSupabasePersistError(step, {
+    code: sanitizeOptional(error.code),
+    message: sanitizeSensitiveText(error.message),
+    details: error.details ? sanitizeSensitiveText(error.details) : null,
+    hint: error.hint ? sanitizeSensitiveText(error.hint) : null,
+  })
+}
+
+function formatSupabaseErrorDetails(input: {
+  code?: string
+  message: string
+  details?: string | null
+  hint?: string | null
+}) {
+  return [
+    input.code ? `code=${input.code}` : null,
+    `message=${input.message}`,
+    input.details ? `details=${input.details}` : null,
+    input.hint ? `hint=${input.hint}` : null,
+  ]
+    .filter(Boolean)
+    .join("; ")
+}
+
 export async function getMetaAccounts(userId: string) {
   const supabase = createSupabaseServiceRoleClient()
   const { data, error } = await supabase
@@ -251,7 +299,7 @@ export async function getMetaAccounts(userId: string) {
     .order("platform", { ascending: true })
 
   if (error) {
-    throw error
+    throwSupabasePersistError("meta_accounts_select", error)
   }
 
   return (data ?? []) as MetaSocialAccountRow[]
@@ -266,17 +314,17 @@ export async function getStoredMetaUserToken(userId: string) {
   }
 
   const { data, error } = await supabase
-    .schema("private")
-    .from("social_account_secrets")
-    .select("access_token, raw_provider_payload")
-    .eq("social_account_id", account.id)
+    .rpc("get_social_account_secret", {
+      p_social_account_id: account.id,
+    })
     .maybeSingle()
 
   if (error) {
-    throw error
+    throwSupabasePersistError("secret_rpc_select", error)
   }
 
-  const rawPayload = data?.raw_provider_payload
+  const secret = (data as SocialAccountSecretRpcRow | null) ?? null
+  const rawPayload = secret?.raw_provider_payload
   const userToken =
     rawPayload &&
     typeof rawPayload === "object" &&
@@ -285,7 +333,7 @@ export async function getStoredMetaUserToken(userId: string) {
       ? rawPayload.meta_user_access_token
       : null
 
-  return userToken ?? (typeof data?.access_token === "string" ? data.access_token : null)
+  return userToken ?? (typeof secret?.access_token === "string" ? secret.access_token : null)
 }
 
 export async function getStoredMetaTokenExpiresAt(userId: string) {
@@ -418,11 +466,13 @@ export async function disconnectMetaPlatform(userId: string, platform: Platform)
     return null
   }
 
-  await supabase
-    .schema("private")
-    .from("social_account_secrets")
-    .delete()
-    .eq("social_account_id", account.id)
+  const { error: secretError } = await supabase.rpc("delete_social_account_secret", {
+    p_social_account_id: account.id,
+  })
+
+  if (secretError) {
+    throwSupabasePersistError("secret_rpc_delete", secretError)
+  }
 
   const { data, error } = await supabase
     .from("social_accounts")
@@ -441,7 +491,7 @@ export async function disconnectMetaPlatform(userId: string, platform: Platform)
     .single()
 
   if (error) {
-    throw error
+    throwSupabasePersistError("meta_disconnect_update", error)
   }
 
   return data as MetaSocialAccountRow
@@ -467,7 +517,7 @@ async function getSocialAccount(
     .maybeSingle()
 
   if (error) {
-    throw error
+    throwSupabasePersistError("social_account_select", error)
   }
 
   return (data as MetaSocialAccountRow | null) ?? null
@@ -509,7 +559,7 @@ async function upsertSocialAccount(
     .single()
 
   if (error) {
-    throw error
+    throwSupabasePersistError("social_account_upsert", error)
   }
 
   return data as MetaSocialAccountRow
@@ -523,23 +573,17 @@ async function upsertSecret(
   providerAccountId: string | null,
   rawProviderPayload: Record<string, unknown> | null = null,
 ) {
-  const { error } = await supabase
-    .schema("private")
-    .from("social_account_secrets")
-    .upsert(
-      {
-        social_account_id: socialAccountId,
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        scopes: [],
-        provider_account_id: providerAccountId,
-        raw_provider_payload: rawProviderPayload,
-      },
-      { onConflict: "social_account_id" },
-    )
+  const { error } = await supabase.rpc("upsert_social_account_secret", {
+    p_social_account_id: socialAccountId,
+    p_access_token: accessToken,
+    p_refresh_token: refreshToken,
+    p_scopes: [],
+    p_provider_account_id: providerAccountId,
+    p_raw_provider_payload: rawProviderPayload,
+  })
 
   if (error) {
-    throw error
+    throwSupabasePersistError("secret_rpc_upsert", error)
   }
 }
 

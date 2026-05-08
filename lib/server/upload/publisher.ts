@@ -232,17 +232,21 @@ async function getSocialAccountSecret(
   socialAccountId: string,
 ) {
   const { data, error } = await supabase
-    .schema("private")
-    .from("social_account_secrets")
-    .select("social_account_id, access_token, refresh_token, scopes, provider_account_id")
-    .eq("social_account_id", socialAccountId)
+    .rpc("get_social_account_secret", {
+      p_social_account_id: socialAccountId,
+    })
     .maybeSingle()
 
   if (error) {
     throw error
   }
 
-  return (data as SocialAccountSecretForUpload | null) ?? null
+  return data
+    ? ({
+        social_account_id: socialAccountId,
+        ...data,
+      } as SocialAccountSecretForUpload)
+    : null
 }
 
 async function insertUploadLogs(
