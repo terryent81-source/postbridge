@@ -39,8 +39,8 @@ export default function PrivacyPolicyPage() {
           </p>
           <p>
             For privacy questions, contact us at{" "}
-            <a className="font-medium text-blue-700 underline" href="mailto:terryent1@gmail.com">
-              terryent1@gmail.com
+            <a className="font-medium text-blue-700 underline" href="mailto:terryent81@gmail.com">
+              terryent81@gmail.com
             </a>
             .
           </p>

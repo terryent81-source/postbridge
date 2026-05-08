@@ -29,8 +29,8 @@ export default function DataDeletionPage() {
             <li>Disconnect connected Meta, Facebook, or Instagram accounts.</li>
             <li>
               For a full deletion request, email{" "}
-              <a className="font-medium text-blue-700 underline" href="mailto:terryent1@gmail.com">
-                terryent1@gmail.com
+              <a className="font-medium text-blue-700 underline" href="mailto:terryent81@gmail.com">
+                terryent81@gmail.com
               </a>{" "}
               with the subject "PostBridge Data Deletion Request".
             </li>
