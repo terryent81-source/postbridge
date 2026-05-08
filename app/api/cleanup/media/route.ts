@@ -81,6 +81,26 @@ type CleanupSummary = {
   skipped_reasons: Record<CleanupSkipReason, number>
 }
 
+async function recordCleanupRun(
+  supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
+  summary: CleanupSummary,
+  ranAt: Date,
+) {
+  const { error } = await supabase.from("storage_cleanup_runs").insert({
+    scanned: summary.scanned,
+    deleted: summary.deleted,
+    skipped: summary.skipped,
+    errors: summary.errors,
+    skipped_reasons: summary.skipped_reasons,
+    deleted_files: summary.deleted_files,
+    ran_at: ranAt.toISOString(),
+  })
+
+  if (error) {
+    console.error("[media-cleanup] Failed to record cleanup summary", error)
+  }
+}
+
 function createSummary(): CleanupSummary {
   return {
     scanned: 0,
@@ -472,6 +492,7 @@ export async function POST(request: Request) {
   }
 
   await cleanupOrphanStorageFiles(supabase, summary, processedStoragePaths, now)
+  await recordCleanupRun(supabase, summary, now)
 
   return NextResponse.json(summary)
 }

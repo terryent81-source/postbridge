@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { PageHeader } from "@/components/app/page-header"
+import { AdminPageGuard } from "@/components/app/admin-page-guard"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -71,7 +72,7 @@ export default function AdminPage() {
   )
 
   return (
-    <>
+    <AdminPageGuard>
       <PageHeader
         title="관리자"
         description="사용자, 사용량, 게시 로그를 한곳에서 모니터링합니다."
@@ -262,6 +263,6 @@ export default function AdminPage() {
           </TabsContent>
         </Tabs>
       </div>
-    </>
+    </AdminPageGuard>
   )
 }

@@ -2,6 +2,10 @@
 
 import type { Platform, Post, UploadLog } from "@/lib/db"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
+import {
+  listAttachedMediaAssetsForPosts,
+  type SupabaseMediaAssetPreview,
+} from "@/lib/supabase/media-assets"
 
 export type RecordMockUploadResultInput = {
   title: string
@@ -14,6 +18,7 @@ export type RecordMockUploadResultInput = {
 export type SupabaseUploadLogWithPost = {
   log: UploadLog
   post: Post | null
+  mediaAssets: SupabaseMediaAssetPreview[]
 }
 
 const POSTS_SELECT =
@@ -82,10 +87,12 @@ export async function listMySupabaseUploadLogsWithPosts(): Promise<
   const uploadLogs = (logs ?? []) as UploadLog[]
   const postIds = Array.from(new Set(uploadLogs.map((log) => log.post_id)))
   const postsById = await listMySupabasePostsByIds(postIds, user.id)
+  const mediaAssetsByPostId = await listAttachedMediaAssetsForPosts(postIds)
 
   return uploadLogs.map((log) => ({
     log,
     post: postsById[log.post_id] ?? null,
+    mediaAssets: mediaAssetsByPostId[log.post_id] ?? [],
   }))
 }
 

@@ -22,7 +22,11 @@ import {
 import { StatusBadge } from "@/components/app/status-badge"
 import { PlatformIcon } from "@/components/platform-icon"
 import { WeeklyUploadCounter } from "@/components/app/weekly-upload-counter"
-import { PostMediaSummary } from "@/components/app/post-media-summary"
+import {
+  PostMediaSummary,
+  hasDeletedMediaAssets,
+} from "@/components/app/post-media-summary"
+import { MEDIA_EXPIRED_MESSAGE } from "@/lib/supabase/media-assets"
 import {
   getPosts,
   getSocialAccounts,
@@ -65,6 +69,7 @@ import { cn } from "@/lib/utils"
 
 type DashboardUiPost = UiPost & {
   mediaAssets?: SupabaseMediaAssetPreview[]
+  hasDeletedMedia?: boolean
 }
 
 export default function DashboardPage() {
@@ -105,6 +110,7 @@ export default function DashboardPage() {
         ? supabasePosts.map(({ post, mediaAssets }) => ({
             ...mapPostToUi(post),
             mediaAssets,
+            hasDeletedMedia: hasDeletedMediaAssets(mediaAssets),
           }))
         : mockPosts.map(mapPostToUi)
       const scheduledCount = hasSupabasePosts
@@ -281,6 +287,11 @@ export default function DashboardPage() {
                           <span className="line-clamp-1 font-medium text-foreground">
                             {p.title}
                           </span>
+                          {p.status === "draft" && p.hasDeletedMedia && (
+                            <span className="mt-1 block text-xs font-medium text-destructive">
+                              {MEDIA_EXPIRED_MESSAGE}
+                            </span>
+                          )}
                           <PostMediaSummary
                             mediaAssets={p.mediaAssets}
                             className="mt-2 lg:hidden"
@@ -320,6 +331,11 @@ export default function DashboardPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              {p.hasDeletedMedia && (
+                                <div className="max-w-56 px-2 py-1.5 text-xs text-destructive">
+                                  파일을 다시 업로드해 주세요.
+                                </div>
+                              )}
                               <DropdownMenuItem>편집</DropdownMenuItem>
                               <DropdownMenuItem>복제</DropdownMenuItem>
                               <DropdownMenuItem>다시 시도</DropdownMenuItem>

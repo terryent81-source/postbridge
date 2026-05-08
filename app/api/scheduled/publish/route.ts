@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic"
 
 const SCHEDULED_BATCH_LIMIT = 10
 const INSUFFICIENT_CREDITS_MESSAGE = "Insufficient upload credits"
+const MISSING_MEDIA_FILE_MESSAGE = "missing_media_file"
 const MOCK_UPLOAD_FAILURE_MESSAGE = "Mock scheduled upload failed"
 
 type ScheduledPost = {
@@ -119,6 +120,15 @@ async function publishScheduledPost(
       }
     }
 
+    if (await hasDeletedMediaFile(supabase, post)) {
+      return failScheduledPost(
+        supabase,
+        post,
+        MISSING_MEDIA_FILE_MESSAGE,
+        attemptedAt,
+      )
+    }
+
     const usageCredit = await consumeScheduledUploadCredit(supabase, post.user_id)
 
     if (!usageCredit) {
@@ -193,6 +203,22 @@ async function assertPostIsStillScheduled(supabase: SupabaseClient, postId: stri
   }
 
   return Boolean(data)
+}
+
+async function hasDeletedMediaFile(supabase: SupabaseClient, post: ScheduledPost) {
+  const { data, error } = await supabase
+    .from("media_assets")
+    .select("id")
+    .eq("post_id", post.id)
+    .eq("user_id", post.user_id)
+    .or("status.eq.deleted,deleted_at.not.is.null")
+    .limit(1)
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).length > 0
 }
 
 async function failScheduledPost(

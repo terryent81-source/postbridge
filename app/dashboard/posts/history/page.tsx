@@ -32,6 +32,8 @@ import {
   listMySupabaseUploadLogsWithPosts,
   SUPABASE_UPLOAD_LOGS_CHANGED_EVENT,
 } from "@/lib/supabase/upload-logs"
+import { MEDIA_EXPIRED_MESSAGE } from "@/lib/supabase/media-assets"
+import { hasDeletedMediaAssets } from "@/components/app/post-media-summary"
 import { Download, RotateCw, Search, FileX2 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -49,10 +51,14 @@ const FILTERS: { id: "all" | UploadStatus; label: string }[] = [
   { id: "pending", label: UPLOAD_STATUS_LABELS.pending },
 ]
 
+type HistoryUploadLog = UiUploadLog & {
+  hasDeletedMedia?: boolean
+}
+
 export default function HistoryPage() {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("all")
   const [query, setQuery] = useState("")
-  const [logs, setLogs] = useState<UiUploadLog[]>([])
+  const [logs, setLogs] = useState<HistoryUploadLog[]>([])
 
   useEffect(() => {
     let mounted = true
@@ -61,7 +67,12 @@ export default function HistoryPage() {
 
       if (supabaseRows.length > 0) {
         if (mounted) {
-          setLogs(supabaseRows.map(({ log, post }) => mapUploadLogToUi(log, post)))
+          setLogs(
+            supabaseRows.map(({ log, post, mediaAssets }) => ({
+              ...mapUploadLogToUi(log, post),
+              hasDeletedMedia: hasDeletedMediaAssets(mediaAssets),
+            })),
+          )
         }
         return
       }
@@ -205,7 +216,11 @@ export default function HistoryPage() {
                           {p.attemptedAt}
                         </TableCell>
                         <TableCell className="hidden lg:table-cell">
-                          {p.errorMessage ? (
+                          {p.hasDeletedMedia ? (
+                            <span className="text-sm font-medium text-destructive">
+                              파일을 다시 업로드해 주세요.
+                            </span>
+                          ) : p.errorMessage ? (
                             <span className="text-sm font-medium text-destructive">
                               {p.errorMessage}
                             </span>
@@ -219,6 +234,8 @@ export default function HistoryPage() {
                               size="sm"
                               variant="outline"
                               className="press-effect gap-1.5"
+                              disabled={p.hasDeletedMedia}
+                              title={p.hasDeletedMedia ? MEDIA_EXPIRED_MESSAGE : undefined}
                               onClick={() => toast.success("재시도 큐에 추가되었습니다.")}
                             >
                               <RotateCw className="h-3.5 w-3.5" /> 재시도

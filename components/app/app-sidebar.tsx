@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -19,15 +20,17 @@ import {
 import { BrandLogo } from "@/components/brand-logo"
 import { WeeklyUploadCounter } from "@/components/app/weekly-upload-counter"
 import {
+  CalendarClock,
+  CreditCard,
+  Database,
+  FileClock,
+  Gift,
+  History,
   LayoutDashboard,
   PenSquare,
-  CalendarClock,
-  History,
   PlugZap,
-  Gift,
-  CreditCard,
-  ShieldCheck,
   Settings,
+  UserCog,
 } from "lucide-react"
 
 const NAV_MAIN: {
@@ -58,15 +61,57 @@ const NAV_MAIN: {
   { href: "/dashboard/pricing", label: "요금제", icon: CreditCard },
 ]
 
-const NAV_BOTTOM = [
-  { href: "/dashboard/admin", label: "관리자", icon: ShieldCheck },
-  { href: "/dashboard/settings", label: "설정", icon: Settings },
+const NAV_ADMIN = [
+  { href: "/dashboard/admin/upload-logs", label: "Upload Logs", icon: FileClock },
+  {
+    href: "/dashboard/admin/storage-cleanup",
+    label: "Storage Cleanup",
+    icon: Database,
+  },
 ]
+
+const NAV_SUPER_ADMIN = [
+  { href: "/dashboard/admin/users", label: "Admin Users", icon: UserCog },
+]
+
+const NAV_BOTTOM = [{ href: "/dashboard/settings", label: "설정", icon: Settings }]
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const [adminRole, setAdminRole] = useState<"admin" | "super_admin" | null>(null)
+  const adminNavItems =
+    adminRole === "super_admin" ? [...NAV_ADMIN, ...NAV_SUPER_ADMIN] : NAV_ADMIN
   const isActive = (href: string) =>
     href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(href)
+
+  useEffect(() => {
+    let mounted = true
+
+    const loadAdminStatus = async () => {
+      try {
+        const response = await fetch("/api/admin/me", { cache: "no-store" })
+        if (mounted) {
+          if (!response.ok) {
+            setAdminRole(null)
+            return
+          }
+
+          const payload = await response.json()
+          setAdminRole(payload.role === "super_admin" ? "super_admin" : "admin")
+        }
+      } catch {
+        if (mounted) {
+          setAdminRole(null)
+        }
+      }
+    }
+
+    loadAdminStatus()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   return (
     <Sidebar collapsible="icon">
@@ -116,8 +161,33 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {adminRole && (
+          <SidebarGroup>
+            <SidebarGroupLabel>관리자</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminNavItems.map((item) => (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive(item.href)}
+                      tooltip={item.label}
+                      className="press-effect"
+                    >
+                      <Link href={item.href}>
+                        <item.icon className="h-4 w-4" aria-hidden="true" />
+                        <span>{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         <SidebarGroup>
-          <SidebarGroupLabel>관리</SidebarGroupLabel>
+          <SidebarGroupLabel>계정</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV_BOTTOM.map((item) => (
@@ -157,13 +227,13 @@ export function AppSidebar() {
           />
           <p className="relative text-sm font-bold">Pro 업그레이드</p>
           <p className="relative mt-1 text-xs text-primary-foreground/85">
-            월 500회 업로드 + 고급 예약
+            월 500회 업로드와 고급 예약 기능
           </p>
           <Link
             href="/dashboard/pricing"
             className="press-effect relative mt-3 inline-flex h-8 items-center rounded-md bg-card px-3 text-xs font-semibold text-foreground shadow-sm hover:bg-card/90 hover:shadow"
           >
-            업그레이드 →
+            업그레이드
           </Link>
         </div>
       </SidebarFooter>

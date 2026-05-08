@@ -37,6 +37,9 @@ export type SupabaseMediaAssetPreview = SupabaseMediaAssetRow & {
   signedUrl?: string
 }
 
+export const MEDIA_EXPIRED_MESSAGE =
+  "미디어 보관 기간이 만료되었습니다. 다시 업로드해 주세요."
+
 export type UploadPostMediaInput = {
   postId: string
   files: File[]
@@ -182,8 +185,7 @@ export async function listAttachedMediaAssetsForPosts(
     .from("media_assets")
     .select("*")
     .eq("user_id", user.id)
-    .in("status", ["attached", "pending_delete"])
-    .is("deleted_at", null)
+    .in("status", ["attached", "pending_delete", "deleted"])
     .in("post_id", uniquePostIds)
     .order("created_at", { ascending: true })
 
@@ -198,7 +200,7 @@ export async function listAttachedMediaAssetsForPosts(
     rows.map(async (asset) => ({
       ...asset,
       signedUrl:
-        asset.media_type === "image"
+        asset.status !== "deleted" && !asset.deleted_at && asset.media_type === "image"
           ? await createSignedImageUrl(asset.storage_bucket, asset.storage_path)
           : undefined,
     })),
