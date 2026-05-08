@@ -2,16 +2,20 @@ import { NextResponse } from "next/server"
 import { createServerSupabaseClient } from "@/lib/supabase/server"
 import {
   ADDITIONAL_META_PERMISSION_MESSAGE,
-  MetaGraphError,
+  MetaGraphRequestError,
+  type MetaErrorDetails,
   fetchMetaPages,
   getStoredMetaTokenExpiresAt,
   getStoredMetaUserToken,
+  sanitizeSensitiveText,
   saveSelectedMetaPage,
   stripMetaPageToken,
 } from "@/lib/server/meta/accounts"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+
+type JsonErrorDetails = MetaErrorDetails | { step: string; message: string }
 
 export async function GET() {
   const auth = await getAuthenticatedUser()
@@ -28,7 +32,10 @@ export async function GET() {
         status: 409,
         error: "META_TOKEN_NOT_FOUND",
         message: "Meta 연결 토큰을 찾을 수 없습니다.",
-        details: "Meta 계정을 다시 연결한 뒤 Page 목록을 새로고침해 주세요.",
+        details: {
+          step: "supabase_token_lookup",
+          message: "Meta 계정을 다시 연결한 뒤 Page 목록을 새로고침해 주세요.",
+        },
       })
     }
 
@@ -43,7 +50,7 @@ export async function GET() {
       status: 502,
       error: "META_PAGE_LIST_FAILED",
       message: "Facebook Page 목록 조회에 실패했습니다.",
-      details: getSafeErrorDetails(error),
+      details: getSafeErrorDetails(error, "page_list_unknown"),
     })
   }
 }
@@ -65,7 +72,10 @@ export async function POST(request: Request) {
       status: 400,
       error: "INVALID_REQUEST_BODY",
       message: "요청 본문이 올바르지 않습니다.",
-      details: "pageId를 JSON 본문으로 보내 주세요.",
+      details: {
+        step: "request_json_parse",
+        message: "pageId를 JSON 본문으로 보내 주세요.",
+      },
     })
   }
 
@@ -74,7 +84,10 @@ export async function POST(request: Request) {
       status: 400,
       error: "PAGE_ID_REQUIRED",
       message: "Facebook Page를 선택해 주세요.",
-      details: "pageId is required.",
+      details: {
+        step: "request_validation",
+        message: "pageId is required.",
+      },
     })
   }
 
@@ -86,7 +99,10 @@ export async function POST(request: Request) {
         status: 409,
         error: "META_TOKEN_NOT_FOUND",
         message: "Meta 연결 토큰을 찾을 수 없습니다.",
-        details: "Meta 계정을 다시 연결한 뒤 Page를 저장해 주세요.",
+        details: {
+          step: "supabase_token_lookup",
+          message: "Meta 계정을 다시 연결한 뒤 Page를 저장해 주세요.",
+        },
       })
     }
 
@@ -98,7 +114,10 @@ export async function POST(request: Request) {
         status: 404,
         error: "META_PAGE_NOT_FOUND",
         message: "선택한 Facebook Page를 찾을 수 없습니다.",
-        details: "Page 목록을 새로고침한 뒤 다시 선택해 주세요.",
+        details: {
+          step: "page_selection",
+          message: "Page 목록을 새로고침한 뒤 다시 선택해 주세요.",
+        },
       })
     }
 
@@ -107,7 +126,10 @@ export async function POST(request: Request) {
         status: 403,
         error: "META_PAGE_ACCESS_TOKEN_MISSING",
         message: ADDITIONAL_META_PERMISSION_MESSAGE,
-        details: "현재 Meta 권한으로는 Page access token을 받을 수 없습니다.",
+        details: {
+          step: "page_access_token_enrichment",
+          message: "현재 Meta 권한으로는 Page access token을 받을 수 없습니다.",
+        },
       })
     }
 
@@ -124,7 +146,7 @@ export async function POST(request: Request) {
       status: 502,
       error: "META_PAGE_SAVE_FAILED",
       message: "Facebook Page 저장에 실패했습니다.",
-      details: getSafeErrorDetails(error),
+      details: getSafeErrorDetails(error, "page_save_unknown"),
     })
   }
 }
@@ -139,7 +161,10 @@ async function getAuthenticatedUser() {
         status: 500,
         error: "SUPABASE_NOT_CONFIGURED",
         message: "Supabase 설정을 찾을 수 없습니다.",
-        details: "Server Supabase configuration is missing.",
+        details: {
+          step: "supabase_config",
+          message: "Server Supabase configuration is missing.",
+        },
       }),
     }
   }
@@ -156,7 +181,10 @@ async function getAuthenticatedUser() {
         status: 401,
         error: "UNAUTHORIZED",
         message: "로그인이 필요합니다.",
-        details: "User session is missing or expired.",
+        details: {
+          step: "supabase_auth",
+          message: sanitizeSensitiveText(error?.message ?? "User session is missing or expired."),
+        },
       }),
     }
   }
@@ -173,7 +201,7 @@ function jsonError({
   status: number
   error: string
   message: string
-  details?: string
+  details?: JsonErrorDetails
 }) {
   return NextResponse.json(
     {
@@ -186,19 +214,15 @@ function jsonError({
   )
 }
 
-function getSafeErrorDetails(error: unknown) {
-  let message: string
-
-  if (error instanceof MetaGraphError) {
-    message = error.message
-  } else if (error instanceof Error) {
-    message = error.message
-  } else {
-    message = "Unknown error"
+function getSafeErrorDetails(error: unknown, fallbackStep: string): JsonErrorDetails {
+  if (error instanceof MetaGraphRequestError) {
+    return error.details
   }
 
-  return message
-    .replace(/access_token=[^&\s]+/gi, "access_token=[redacted]")
-    .replace(/client_secret=[^&\s]+/gi, "client_secret=[redacted]")
-    .replace(/code=[^&\s]+/gi, "code=[redacted]")
+  return {
+    step: fallbackStep,
+    message: sanitizeSensitiveText(
+      error instanceof Error ? error.message : "Unexpected Page request error",
+    ),
+  }
 }

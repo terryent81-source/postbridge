@@ -38,6 +38,16 @@ export type MetaSocialAccountRow = {
   updated_at: string
 }
 
+export type MetaErrorDetails = {
+  step: string
+  status?: number
+  type?: string
+  code?: number
+  error_subcode?: number
+  fbtrace_id?: string
+  message: string
+}
+
 export type SafeMetaPageAccount = Omit<MetaPageAccount, "access_token">
 
 type GraphErrorPayload = {
@@ -46,15 +56,14 @@ type GraphErrorPayload = {
     type?: string
     code?: number
     error_subcode?: number
+    fbtrace_id?: string
   }
 }
 
-export class MetaGraphError extends Error {
-  code = "META_GRAPH_ERROR"
-
-  constructor(message: string) {
-    super(message)
-    this.name = "MetaGraphError"
+export class MetaGraphRequestError extends Error {
+  constructor(readonly details: MetaErrorDetails) {
+    super(details.message)
+    this.name = "MetaGraphRequestError"
   }
 }
 
@@ -91,13 +100,35 @@ async function fetchMetaPageList(
   url.searchParams.set("fields", fields)
   url.searchParams.set("access_token", userAccessToken)
 
-  const response = await fetch(url)
-  const payload = (await response.json().catch(() => ({}))) as
-    | ({ data?: MetaPageAccount[] } & GraphErrorPayload)
-    | Record<string, never>
+  let response: Response
+
+  try {
+    response = await fetch(url)
+  } catch (error) {
+    throw new MetaGraphRequestError({
+      step: "me_accounts_fetch",
+      message: sanitizeSensitiveText(
+        error instanceof Error ? error.message : "Graph API fetch failed",
+      ),
+    })
+  }
+
+  let payload: ({ data?: MetaPageAccount[] } & GraphErrorPayload) | null = null
+
+  try {
+    payload = (await response.json()) as { data?: MetaPageAccount[] } & GraphErrorPayload
+  } catch (error) {
+    throw new MetaGraphRequestError({
+      step: "me_accounts_json_parse",
+      status: response.status,
+      message: sanitizeSensitiveText(
+        error instanceof Error ? error.message : "Graph API response was not valid JSON",
+      ),
+    })
+  }
 
   if (!response.ok) {
-    throw new MetaGraphError(getSafeGraphErrorMessage(payload))
+    throw new MetaGraphRequestError(toMetaErrorDetails("me_accounts_request", response.status, payload))
   }
 
   return Array.isArray(payload.data) ? payload.data : []
@@ -145,13 +176,17 @@ async function fetchMetaPageFields<T extends object>(
   url.searchParams.set("fields", fields)
   url.searchParams.set("access_token", userAccessToken)
 
-  const response = await fetch(url)
+  try {
+    const response = await fetch(url)
 
-  if (!response.ok) {
+    if (!response.ok) {
+      return null
+    }
+
+    return (await response.json().catch(() => null)) as T | null
+  } catch {
     return null
   }
-
-  return (await response.json().catch(() => null)) as T | null
 }
 
 function addPermissionWarning(page: MetaPageAccount): MetaPageAccount {
@@ -170,22 +205,38 @@ export function stripMetaPageToken(page: MetaPageAccount): SafeMetaPageAccount {
   return safePage
 }
 
-export function getSafeGraphErrorMessage(payload: unknown) {
-  if (!payload || typeof payload !== "object" || !("error" in payload)) {
-    return "Graph API request failed"
+export function toMetaErrorDetails(
+  step: string,
+  status: number | undefined,
+  payload: GraphErrorPayload | null,
+): MetaErrorDetails {
+  const error = payload?.error
+
+  return {
+    step,
+    status,
+    type: sanitizeOptional(error?.type),
+    code: error?.code,
+    error_subcode: error?.error_subcode,
+    fbtrace_id: sanitizeOptional(error?.fbtrace_id),
+    message: sanitizeSensitiveText(error?.message ?? "Graph API request failed"),
   }
+}
 
-  const error = (payload as GraphErrorPayload).error
-  const parts = [
-    error?.message,
-    error?.type ? `type=${error.type}` : null,
-    typeof error?.code === "number" ? `code=${error.code}` : null,
-    typeof error?.error_subcode === "number"
-      ? `subcode=${error.error_subcode}`
-      : null,
-  ].filter(Boolean)
+export function sanitizeSensitiveText(value: string) {
+  return value
+    .replace(/access_token=([^&\s]+)/gi, "access_token=[REDACTED]")
+    .replace(/fb_exchange_token=([^&\s]+)/gi, "fb_exchange_token=[REDACTED]")
+    .replace(/client_secret=([^&\s]+)/gi, "client_secret=[REDACTED]")
+    .replace(/refresh_token=([^&\s]+)/gi, "refresh_token=[REDACTED]")
+    .replace(/authorization_code=([^&\s]+)/gi, "authorization_code=[REDACTED]")
+    .replace(/code=([^&\s]+)/gi, "code=[REDACTED]")
+    .replace(/\b(EAA[A-Za-z0-9_-]{20,})\b/g, "[REDACTED]")
+    .replace(/\b([A-Za-z0-9_-]{80,})\b/g, "[REDACTED]")
+}
 
-  return parts.join("; ") || "Graph API request failed"
+function sanitizeOptional(value: string | undefined) {
+  return value ? sanitizeSensitiveText(value) : undefined
 }
 
 export async function getMetaAccounts(userId: string) {

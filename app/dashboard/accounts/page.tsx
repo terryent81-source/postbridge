@@ -49,13 +49,23 @@ type MetaPage = {
   }
 }
 
+type MetaErrorDetails = {
+  step?: string
+  status?: number
+  type?: string
+  code?: number
+  error_subcode?: number
+  fbtrace_id?: string
+  message?: string
+}
+
 type MetaApiResponse<T> =
   | ({ ok: true } & T)
   | {
       ok: false
       error: string
       message: string
-      details?: string | null
+      details?: MetaErrorDetails | string | null
     }
 
 const PLATFORMS: MetaPlatform[] = ["facebook", "instagram"]
@@ -415,7 +425,37 @@ function formatApiError(payload: MetaApiResponse<unknown> | null, fallback: stri
     return fallback
   }
 
-  return payload.details ? `${payload.message} ${payload.details}` : payload.message
+  return [
+    payload.error,
+    payload.message,
+    ...formatErrorDetails(payload.details),
+  ]
+    .filter(Boolean)
+    .join(" - ")
+}
+
+function formatErrorDetails(
+  details: MetaErrorDetails | string | null | undefined,
+) {
+  if (!details) {
+    return []
+  }
+
+  if (typeof details === "string") {
+    return [details]
+  }
+
+  return [
+    details.step ? `step=${details.step}` : null,
+    typeof details.status === "number" ? `status=${details.status}` : null,
+    details.type ? `type=${details.type}` : null,
+    typeof details.code === "number" ? `code=${details.code}` : null,
+    typeof details.error_subcode === "number"
+      ? `subcode=${details.error_subcode}`
+      : null,
+    details.fbtrace_id ? `fbtrace_id=${details.fbtrace_id}` : null,
+    details.message ? `message=${details.message}` : null,
+  ].filter(Boolean)
 }
 
 function formatOAuthCallbackError(
