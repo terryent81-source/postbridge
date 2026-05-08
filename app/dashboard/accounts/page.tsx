@@ -152,6 +152,8 @@ export default function AccountsPage() {
     const searchParams = new URLSearchParams(window.location.search)
     const metaStatus = searchParams.get("meta")
     const error = searchParams.get("error")
+    const errorCode = searchParams.get("error_code")
+    const message = searchParams.get("message")
 
     if (metaStatus === "connected") {
       toast.success("Meta 계정 연결이 완료되었습니다. 사용할 Facebook Page를 선택해 주세요.")
@@ -159,7 +161,7 @@ export default function AccountsPage() {
     }
 
     if (error) {
-      toast.error(error)
+      toast.error(formatOAuthCallbackError(error, errorCode, message))
     }
   }, [loadPages])
 
@@ -414,6 +416,14 @@ function formatApiError(payload: MetaApiResponse<unknown> | null, fallback: stri
   }
 
   return payload.details ? `${payload.message} ${payload.details}` : payload.message
+}
+
+function formatOAuthCallbackError(
+  error: string,
+  errorCode: string | null,
+  message: string | null,
+) {
+  return [error, errorCode, message].filter(Boolean).join(" - ")
 }
 
 function formatDate(value: string) {
