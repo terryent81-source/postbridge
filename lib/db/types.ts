@@ -25,6 +25,8 @@ export type AccountStatus = "connected" | "needs_connection" | "expired"
 
 export type UploadStatus = "pending" | "success" | "failed"
 
+export type UploadMode = "mock" | "real"
+
 export type SubscriptionTier = "free" | "starter" | "pro" | "business"
 
 export const PLATFORMS: { id: Platform; name: string; color: string; charLimit: number }[] = [
@@ -127,6 +129,8 @@ export interface UploadLog {
   user_id: UUID
   platform: Platform
   status: UploadStatus
+  upload_mode?: UploadMode
+  platform_post_id?: string | null
   error_message: string | null
   attempted_at: ISODateString
   completed_at: ISODateString | null

@@ -37,7 +37,6 @@ import {
   createPost as createMockPost,
   CURRENT_USER,
   PLATFORMS,
-  publishPost,
   recordWeeklyUpload,
   schedulePost as scheduleMockPost,
   type Platform,
@@ -48,12 +47,11 @@ import {
   validatePostMediaFile,
 } from "@/lib/supabase/media-assets"
 import { createSupabasePost } from "@/lib/supabase/posts"
+import { publishMySupabasePostNow } from "@/lib/supabase/publish"
 import {
-  consumeMyWeeklyUploadCredit,
   getMyUsageCredits,
   hasAvailableUploadCredit,
 } from "@/lib/supabase/usage-credits"
-import { recordMyMockUploadResult } from "@/lib/supabase/upload-logs"
 import {
   Save,
   Send,
@@ -236,19 +234,30 @@ export function PostComposer() {
     })
     const input = buildPostInput()
     try {
-      const post = await createMockPost(CURRENT_USER, input)
-      const published = await publishPost(post.id)
-      const supabaseLogs = await recordMyMockUploadResult({
+      const supabasePost = await createSupabasePost({
         title: input.title,
         content: input.content,
         platforms: input.platforms,
+        status: "draft",
       })
-      await stageImmediateUploadMediaForCleanup(supabaseLogs?.[0]?.post_id, 0)
-      if (supabaseUsage) {
-        await consumeMyWeeklyUploadCredit()
-      } else {
+      await uploadSelectedMedia(supabasePost.id)
+      const publishResult = await publishMySupabasePostNow(supabasePost.id)
+
+      if (!supabaseUsage) {
+        await createMockPost(CURRENT_USER, input)
         await recordWeeklyUpload(CURRENT_USER, 1)
       }
+
+      if (publishResult.status === "failed") {
+        throw new Error(
+          publishResult.results
+            .filter((result) => result.status === "failed")
+            .map((result) => `${result.platform}: ${result.errorMessage}`)
+            .join("; ") || "?낅줈?쒖뿉 ?ㅽ뙣?덉뒿?덈떎.",
+        )
+      }
+
+      const published = { platforms: input.platforms }
       toast.success(`${published.platforms.length}개 플랫폼에 업로드를 시작했습니다.`, {
         id,
         description: supabaseUsage
@@ -257,6 +266,7 @@ export function PostComposer() {
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : "업로드에 실패했습니다."
+      /* legacy mock failure handling moved to /api/uploads/publish
       const failedPlatforms = getMockFailedPlatforms(message, input.platforms)
 
       const supabaseLogs = await recordMyMockUploadResult({
@@ -270,6 +280,7 @@ export function PostComposer() {
         supabaseLogs?.[0]?.post_id,
         72 * 60 * 60 * 1000,
       )
+      */
 
       toast.error(error instanceof Error ? error.message : "업로드에 실패했습니다.", {
         id,

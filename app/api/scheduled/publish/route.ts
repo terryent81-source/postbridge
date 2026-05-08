@@ -2,6 +2,11 @@ import { NextResponse } from "next/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Platform } from "@/lib/db"
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role"
+import {
+  failPostWithUploadLogs,
+  publishPostWithUploader,
+} from "@/lib/server/upload/publisher"
+import { consumeUploadCredit } from "@/lib/server/upload/usage"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -129,7 +134,7 @@ async function publishScheduledPost(
       )
     }
 
-    const usageCredit = await consumeScheduledUploadCredit(supabase, post.user_id)
+    const usageCredit = await consumeUploadCredit(supabase, post.user_id)
 
     if (!usageCredit) {
       return failScheduledPost(
@@ -140,43 +145,18 @@ async function publishScheduledPost(
       )
     }
 
-    const { error: logError } = await supabase.from("upload_logs").insert(
-      post.platforms.map((platform) => ({
-        post_id: post.id,
-        user_id: post.user_id,
-        platform,
-        status: "success",
-        error_message: null,
-        attempted_at: attemptedAt.toISOString(),
-        completed_at: attemptedAt.toISOString(),
-      })),
-    )
-
-    if (logError) {
-      throw logError
-    }
-
-    const { data: updatedPost, error: updateError } = await supabase
-      .from("posts")
-      .update({
-        status: "published",
-        published_at: attemptedAt.toISOString(),
-        fail_reason: null,
-      })
-      .eq("id", post.id)
-      .eq("status", "scheduled")
-      .select("id")
-      .maybeSingle()
-
-    if (updateError || !updatedPost) {
-      throw updateError ?? new Error("Scheduled post was not updated")
-    }
-
-    await markPostMediaPendingDelete(supabase, post, attemptedAt)
+    const publishResult = await publishPostWithUploader(supabase, post, attemptedAt)
 
     return {
       postId: post.id,
-      status: "published",
+      status: publishResult.status === "published" ? "published" : "failed",
+      reason:
+        publishResult.status === "failed"
+          ? publishResult.results
+              .filter((result) => result.status === "failed")
+              .map((result) => `${result.platform}: ${result.errorMessage}`)
+              .join("; ")
+          : undefined,
     }
   } catch (error) {
     const message =
@@ -227,48 +207,7 @@ async function failScheduledPost(
   reason: string,
   attemptedAt: Date,
 ): Promise<PublishResult> {
-  const failedPlatforms = post.platforms.map((platform) => ({
-    post_id: post.id,
-    user_id: post.user_id,
-    platform,
-    status: "failed",
-    error_message: reason,
-    attempted_at: attemptedAt.toISOString(),
-    completed_at: null,
-  }))
-
-  if (failedPlatforms.length > 0) {
-    const { error: logError } = await supabase
-      .from("upload_logs")
-      .insert(failedPlatforms)
-
-    if (logError) {
-      console.error("[scheduled-publish] Failed to insert failed upload logs", {
-        postId: post.id,
-        error: logError,
-      })
-    }
-  }
-
-  const { error: postError } = await supabase
-    .from("posts")
-    .update({
-      status: "failed",
-      published_at: null,
-      fail_reason: reason,
-    })
-    .eq("id", post.id)
-    .eq("status", "scheduled")
-
-  if (postError) {
-    console.error("[scheduled-publish] Failed to mark post failed", {
-      postId: post.id,
-      error: postError,
-    })
-  }
-
-  const deleteAfter = new Date(attemptedAt.getTime() + 72 * 60 * 60 * 1000)
-  await markPostMediaPendingDelete(supabase, post, deleteAfter)
+  await failPostWithUploadLogs(supabase, post, reason, attemptedAt)
 
   return {
     postId: post.id,
