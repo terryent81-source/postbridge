@@ -5,7 +5,8 @@ import type { Platform } from "@/lib/db"
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role"
 import { getMetaGraphApiVersion } from "@/lib/server/upload/mode"
 
-const ADDITIONAL_META_PERMISSION_MESSAGE = "추가 Meta 권한 설정이 필요합니다"
+export const ADDITIONAL_META_PERMISSION_MESSAGE =
+  "추가 Meta 권한 설정이 필요합니다"
 
 export type MetaPageAccount = {
   id: string
@@ -39,32 +40,46 @@ export type MetaSocialAccountRow = {
 
 export type SafeMetaPageAccount = Omit<MetaPageAccount, "access_token">
 
+type GraphErrorPayload = {
+  error?: {
+    message?: string
+    type?: string
+    code?: number
+    error_subcode?: number
+  }
+}
+
+export class MetaGraphError extends Error {
+  code = "META_GRAPH_ERROR"
+
+  constructor(message: string) {
+    super(message)
+    this.name = "MetaGraphError"
+  }
+}
+
 export async function fetchMetaPages(userAccessToken: string) {
   const graphVersion = getMetaGraphApiVersion()
   const pages = await fetchMetaPageList(
     graphVersion,
     userAccessToken,
-    "id,name,access_token,category,tasks",
+    "id,name,category,tasks",
   )
-  const pagesWithWarnings = pages.map(addPermissionWarning)
 
-  try {
-    const instagramPages = await fetchMetaPageList(
-      graphVersion,
-      userAccessToken,
-      "id,instagram_business_account{id,username,name}",
-    )
-    const instagramByPageId = new Map(
-      instagramPages.map((page) => [page.id, page.instagram_business_account]),
-    )
+  return Promise.all(
+    pages.map(async (page) => {
+      const [pageAccessToken, instagramBusinessAccount] = await Promise.all([
+        fetchMetaPageAccessToken(graphVersion, userAccessToken, page.id),
+        fetchMetaInstagramBusinessAccount(graphVersion, userAccessToken, page.id),
+      ])
 
-    return pagesWithWarnings.map((page) => ({
-      ...page,
-      instagram_business_account: instagramByPageId.get(page.id),
-    }))
-  } catch {
-    return pagesWithWarnings
-  }
+      return addPermissionWarning({
+        ...page,
+        access_token: pageAccessToken ?? undefined,
+        instagram_business_account: instagramBusinessAccount ?? undefined,
+      })
+    }),
+  )
 }
 
 async function fetchMetaPageList(
@@ -77,25 +92,70 @@ async function fetchMetaPageList(
   url.searchParams.set("access_token", userAccessToken)
 
   const response = await fetch(url)
-  const payload = (await response.json().catch(() => ({}))) as {
-    data?: MetaPageAccount[]
-    error?: { message?: string }
-  }
+  const payload = (await response.json().catch(() => ({}))) as
+    | ({ data?: MetaPageAccount[] } & GraphErrorPayload)
+    | Record<string, never>
 
   if (!response.ok) {
-    throw new Error(payload.error?.message ?? "Failed to load Facebook Pages")
+    throw new MetaGraphError(getSafeGraphErrorMessage(payload))
   }
 
-  return payload.data ?? []
+  return Array.isArray(payload.data) ? payload.data : []
+}
+
+async function fetchMetaPageAccessToken(
+  graphVersion: string,
+  userAccessToken: string,
+  pageId: string,
+) {
+  const page = await fetchMetaPageFields<{ access_token?: string }>(
+    graphVersion,
+    userAccessToken,
+    pageId,
+    "access_token",
+  )
+
+  return page?.access_token ?? null
+}
+
+async function fetchMetaInstagramBusinessAccount(
+  graphVersion: string,
+  userAccessToken: string,
+  pageId: string,
+) {
+  const page = await fetchMetaPageFields<{
+    instagram_business_account?: MetaPageAccount["instagram_business_account"]
+  }>(
+    graphVersion,
+    userAccessToken,
+    pageId,
+    "instagram_business_account{id,username,name}",
+  )
+
+  return page?.instagram_business_account ?? null
+}
+
+async function fetchMetaPageFields<T extends object>(
+  graphVersion: string,
+  userAccessToken: string,
+  pageId: string,
+  fields: string,
+) {
+  const url = new URL(`https://graph.facebook.com/${graphVersion}/${pageId}`)
+  url.searchParams.set("fields", fields)
+  url.searchParams.set("access_token", userAccessToken)
+
+  const response = await fetch(url)
+
+  if (!response.ok) {
+    return null
+  }
+
+  return (await response.json().catch(() => null)) as T | null
 }
 
 function addPermissionWarning(page: MetaPageAccount): MetaPageAccount {
-  const canPublish =
-    Boolean(page.access_token) &&
-    Array.isArray(page.tasks) &&
-    page.tasks.includes("CREATE_CONTENT")
-
-  if (canPublish) {
+  if (page.access_token) {
     return { ...page, permission_warning: null }
   }
 
@@ -108,6 +168,24 @@ function addPermissionWarning(page: MetaPageAccount): MetaPageAccount {
 export function stripMetaPageToken(page: MetaPageAccount): SafeMetaPageAccount {
   const { access_token: _accessToken, ...safePage } = page
   return safePage
+}
+
+export function getSafeGraphErrorMessage(payload: unknown) {
+  if (!payload || typeof payload !== "object" || !("error" in payload)) {
+    return "Graph API request failed"
+  }
+
+  const error = (payload as GraphErrorPayload).error
+  const parts = [
+    error?.message,
+    error?.type ? `type=${error.type}` : null,
+    typeof error?.code === "number" ? `code=${error.code}` : null,
+    typeof error?.error_subcode === "number"
+      ? `subcode=${error.error_subcode}`
+      : null,
+  ].filter(Boolean)
+
+  return parts.join("; ") || "Graph API request failed"
 }
 
 export async function getMetaAccounts(userId: string) {
@@ -214,7 +292,7 @@ export async function saveSelectedMetaPage({
   tokenExpiresAt: string | null
 }) {
   if (!page.access_token) {
-    throw new Error("Selected Facebook Page access token is missing")
+    throw new Error(ADDITIONAL_META_PERMISSION_MESSAGE)
   }
 
   const supabase = createSupabaseServiceRoleClient()
@@ -227,16 +305,13 @@ export async function saveSelectedMetaPage({
     page.instagram_business_account?.username ??
     page.instagram_business_account?.name ??
     null
-  const permissionWarning = page.permission_warning ?? null
 
   const facebookAccount = await upsertSocialAccount(supabase, {
     userId,
     platform: "facebook",
     status: "connected",
     handle: page.name,
-    description:
-      permissionWarning ??
-      "Facebook Page 업로드에 사용할 Page가 선택되었습니다.",
+    description: "Facebook Page 업로드에 사용할 Page가 선택되었습니다.",
     pageId: page.id,
     pageName: page.name,
     instagramBusinessAccountId,

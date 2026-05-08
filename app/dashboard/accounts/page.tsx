@@ -49,6 +49,15 @@ type MetaPage = {
   }
 }
 
+type MetaApiResponse<T> =
+  | ({ ok: true } & T)
+  | {
+      ok: false
+      error: string
+      message: string
+      details?: string | null
+    }
+
 const PLATFORMS: MetaPlatform[] = ["facebook", "instagram"]
 
 const PLATFORM_NAMES: Record<MetaPlatform, string> = {
@@ -116,16 +125,15 @@ export default function AccountsPage() {
 
     try {
       const response = await fetch("/api/auth/meta/pages", { cache: "no-store" })
-      const payload = (await response.json().catch(() => ({}))) as {
-        pages?: MetaPage[]
-        error?: string
+      const payload = (await response.json().catch(() => null)) as MetaApiResponse<{
+        pages: MetaPage[]
+      }> | null
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(formatApiError(payload, "Facebook Page 목록을 불러오지 못했습니다."))
       }
 
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Facebook Page 목록을 불러오지 못했습니다.")
-      }
-
-      const nextPages = payload.pages ?? []
+      const nextPages = payload.pages
       setPages(nextPages)
       setSelectedPageId((current) => current || nextPages[0]?.id || "")
     } catch (error) {
@@ -173,12 +181,12 @@ export default function AccountsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pageId: selectedPageId }),
       })
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string
-      }
+      const payload = (await response.json().catch(() => null)) as MetaApiResponse<{
+        accounts: unknown
+      }> | null
 
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Facebook Page 저장에 실패했습니다.")
+      if (!response.ok || !payload?.ok) {
+        throw new Error(formatApiError(payload, "Facebook Page 저장에 실패했습니다."))
       }
 
       await loadAccounts()
@@ -231,7 +239,7 @@ export default function AccountsPage() {
           <AlertTitle>Meta 테스트 안내</AlertTitle>
           <AlertDescription>
             현재 단계에서는 pages_show_list 권한으로 Facebook Page 목록을 안정적으로 조회합니다.
-            실제 게시 권한이 부족하면 추가 Meta 권한 설정이 필요합니다.
+            Page access token 또는 실제 게시 권한이 부족하면 추가 Meta 권한 설정이 필요합니다.
           </AlertDescription>
         </Alert>
 
@@ -398,6 +406,14 @@ function getUiStatus(account?: MetaAccount): UiStatus {
   }
 
   return "needs_connection"
+}
+
+function formatApiError(payload: MetaApiResponse<unknown> | null, fallback: string) {
+  if (!payload || payload.ok) {
+    return fallback
+  }
+
+  return payload.details ? `${payload.message} ${payload.details}` : payload.message
 }
 
 function formatDate(value: string) {
