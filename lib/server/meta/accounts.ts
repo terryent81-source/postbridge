@@ -1,0 +1,374 @@
+import "server-only"
+
+import type { SupabaseClient } from "@supabase/supabase-js"
+import type { Platform } from "@/lib/db"
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role"
+import { getMetaGraphApiVersion } from "@/lib/server/upload/mode"
+
+export type MetaPageAccount = {
+  id: string
+  name: string
+  access_token?: string
+  instagram_business_account?: {
+    id: string
+    username?: string
+    name?: string
+  }
+}
+
+export type MetaSocialAccountRow = {
+  id: string
+  user_id: string
+  platform: Platform
+  status: "connected" | "needs_connection" | "expired"
+  handle: string | null
+  description: string | null
+  page_id: string | null
+  page_name: string | null
+  instagram_business_account_id: string | null
+  token_expires_at: string | null
+  connected_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type SafeMetaPageAccount = Omit<MetaPageAccount, "access_token">
+
+export async function fetchMetaPages(userAccessToken: string) {
+  const graphVersion = getMetaGraphApiVersion()
+  const url = new URL(`https://graph.facebook.com/${graphVersion}/me/accounts`)
+  url.searchParams.set(
+    "fields",
+    "id,name,access_token,instagram_business_account{id,username,name}",
+  )
+  url.searchParams.set("access_token", userAccessToken)
+
+  const response = await fetch(url)
+  const payload = (await response.json().catch(() => ({}))) as {
+    data?: MetaPageAccount[]
+    error?: { message?: string }
+  }
+
+  if (!response.ok) {
+    throw new Error(payload.error?.message ?? "Failed to load Facebook Pages")
+  }
+
+  return payload.data ?? []
+}
+
+export function stripMetaPageToken(page: MetaPageAccount): SafeMetaPageAccount {
+  const { access_token: _accessToken, ...safePage } = page
+  return safePage
+}
+
+export async function getMetaAccounts(userId: string) {
+  const supabase = createSupabaseServiceRoleClient()
+  const { data, error } = await supabase
+    .from("social_accounts")
+    .select(
+      "id, user_id, platform, status, handle, description, page_id, page_name, instagram_business_account_id, token_expires_at, connected_at, created_at, updated_at",
+    )
+    .eq("user_id", userId)
+    .in("platform", ["facebook", "instagram"])
+    .order("platform", { ascending: true })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []) as MetaSocialAccountRow[]
+}
+
+export async function getStoredMetaUserToken(userId: string) {
+  const supabase = createSupabaseServiceRoleClient()
+  const account = await getMetaAccount(supabase, userId)
+
+  if (!account) {
+    return null
+  }
+
+  const { data, error } = await supabase
+    .schema("private")
+    .from("social_account_secrets")
+    .select("access_token, raw_provider_payload")
+    .eq("social_account_id", account.id)
+    .maybeSingle()
+
+  if (error) {
+    throw error
+  }
+
+  const rawPayload = data?.raw_provider_payload
+  const userToken =
+    rawPayload &&
+    typeof rawPayload === "object" &&
+    "meta_user_access_token" in rawPayload &&
+    typeof rawPayload.meta_user_access_token === "string"
+      ? rawPayload.meta_user_access_token
+      : null
+
+  return userToken ?? (typeof data?.access_token === "string" ? data.access_token : null)
+}
+
+export async function getStoredMetaTokenExpiresAt(userId: string) {
+  const supabase = createSupabaseServiceRoleClient()
+  const account = await getMetaAccount(supabase, userId)
+
+  return account?.token_expires_at ?? null
+}
+
+export async function upsertMetaConnection({
+  userId,
+  userAccessToken,
+  expiresAt,
+}: {
+  userId: string
+  userAccessToken: string
+  expiresAt: string | null
+}) {
+  const supabase = createSupabaseServiceRoleClient()
+  const facebookAccount = await upsertSocialAccount(supabase, {
+    userId,
+    platform: "facebook",
+    status: "needs_connection",
+    handle: null,
+    description: "Meta 계정이 연결되었습니다. 업로드에 사용할 Facebook Page를 선택해 주세요.",
+    tokenExpiresAt: expiresAt,
+  })
+
+  const instagramAccount = await upsertSocialAccount(supabase, {
+    userId,
+    platform: "instagram",
+    status: "needs_connection",
+    handle: null,
+    description: "Facebook Page 선택 후 연결된 Instagram Business 계정을 저장합니다.",
+    tokenExpiresAt: expiresAt,
+  })
+
+  await Promise.all([
+    upsertSecret(supabase, facebookAccount.id, userAccessToken, null, "meta_user", {
+      meta_user_access_token: userAccessToken,
+    }),
+    upsertSecret(supabase, instagramAccount.id, userAccessToken, null, "meta_user", {
+      meta_user_access_token: userAccessToken,
+    }),
+  ])
+}
+
+export async function saveSelectedMetaPage({
+  userId,
+  page,
+  tokenExpiresAt,
+}: {
+  userId: string
+  page: MetaPageAccount
+  tokenExpiresAt: string | null
+}) {
+  if (!page.access_token) {
+    throw new Error("Selected Facebook Page access token is missing")
+  }
+
+  const supabase = createSupabaseServiceRoleClient()
+  const userAccessToken = await getStoredMetaUserToken(userId)
+  const rawProviderPayload = userAccessToken
+    ? { meta_user_access_token: userAccessToken }
+    : null
+  const instagramBusinessAccountId = page.instagram_business_account?.id ?? null
+  const instagramHandle =
+    page.instagram_business_account?.username ??
+    page.instagram_business_account?.name ??
+    null
+
+  const facebookAccount = await upsertSocialAccount(supabase, {
+    userId,
+    platform: "facebook",
+    status: "connected",
+    handle: page.name,
+    description: "Facebook Page 업로드에 사용할 Page가 선택되었습니다.",
+    pageId: page.id,
+    pageName: page.name,
+    instagramBusinessAccountId,
+    tokenExpiresAt,
+    connectedAt: new Date().toISOString(),
+  })
+
+  await upsertSecret(
+    supabase,
+    facebookAccount.id,
+    page.access_token,
+    null,
+    page.id,
+    rawProviderPayload,
+  )
+
+  const instagramAccount = await upsertSocialAccount(supabase, {
+    userId,
+    platform: "instagram",
+    status: instagramBusinessAccountId ? "connected" : "needs_connection",
+    handle: instagramHandle,
+    description: instagramBusinessAccountId
+      ? "Instagram Business 계정이 Facebook Page와 연결되었습니다."
+      : "선택한 Facebook Page에 연결된 Instagram Business 계정이 없습니다.",
+    pageId: page.id,
+    pageName: page.name,
+    instagramBusinessAccountId,
+    tokenExpiresAt,
+    connectedAt: instagramBusinessAccountId ? new Date().toISOString() : null,
+  })
+
+  await upsertSecret(
+    supabase,
+    instagramAccount.id,
+    page.access_token,
+    null,
+    instagramBusinessAccountId ?? page.id,
+    rawProviderPayload,
+  )
+
+  return { facebookAccount, instagramAccount }
+}
+
+export async function disconnectMetaPlatform(userId: string, platform: Platform) {
+  if (platform !== "facebook" && platform !== "instagram") {
+    throw new Error("Only Facebook and Instagram can be disconnected here")
+  }
+
+  const supabase = createSupabaseServiceRoleClient()
+  const account = await getSocialAccount(supabase, userId, platform)
+
+  if (!account) {
+    return null
+  }
+
+  await supabase
+    .schema("private")
+    .from("social_account_secrets")
+    .delete()
+    .eq("social_account_id", account.id)
+
+  const { data, error } = await supabase
+    .from("social_accounts")
+    .update({
+      status: "needs_connection",
+      handle: null,
+      description: "연결이 해제되었습니다.",
+      page_id: null,
+      page_name: null,
+      instagram_business_account_id: null,
+      token_expires_at: null,
+      connected_at: null,
+    })
+    .eq("id", account.id)
+    .select("*")
+    .single()
+
+  if (error) {
+    throw error
+  }
+
+  return data as MetaSocialAccountRow
+}
+
+async function getMetaAccount(supabase: SupabaseClient, userId: string) {
+  return (
+    (await getSocialAccount(supabase, userId, "facebook")) ??
+    (await getSocialAccount(supabase, userId, "instagram"))
+  )
+}
+
+async function getSocialAccount(
+  supabase: SupabaseClient,
+  userId: string,
+  platform: Platform,
+) {
+  const { data, error } = await supabase
+    .from("social_accounts")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("platform", platform)
+    .maybeSingle()
+
+  if (error) {
+    throw error
+  }
+
+  return (data as MetaSocialAccountRow | null) ?? null
+}
+
+async function upsertSocialAccount(
+  supabase: SupabaseClient,
+  input: {
+    userId: string
+    platform: "facebook" | "instagram"
+    status: "connected" | "needs_connection" | "expired"
+    handle: string | null
+    description: string | null
+    pageId?: string | null
+    pageName?: string | null
+    instagramBusinessAccountId?: string | null
+    tokenExpiresAt?: string | null
+    connectedAt?: string | null
+  },
+) {
+  const { data, error } = await supabase
+    .from("social_accounts")
+    .upsert(
+      {
+        user_id: input.userId,
+        platform: input.platform,
+        status: input.status,
+        handle: input.handle,
+        description: input.description,
+        page_id: input.pageId ?? null,
+        page_name: input.pageName ?? null,
+        instagram_business_account_id: input.instagramBusinessAccountId ?? null,
+        token_expires_at: input.tokenExpiresAt ?? null,
+        connected_at: input.connectedAt ?? null,
+      },
+      { onConflict: "user_id,platform" },
+    )
+    .select("*")
+    .single()
+
+  if (error) {
+    throw error
+  }
+
+  return data as MetaSocialAccountRow
+}
+
+async function upsertSecret(
+  supabase: SupabaseClient,
+  socialAccountId: string,
+  accessToken: string,
+  refreshToken: string | null,
+  providerAccountId: string | null,
+  rawProviderPayload: Record<string, unknown> | null = null,
+) {
+  const { error } = await supabase
+    .schema("private")
+    .from("social_account_secrets")
+    .upsert(
+      {
+        social_account_id: socialAccountId,
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        scopes: [],
+        provider_account_id: providerAccountId,
+        raw_provider_payload: rawProviderPayload,
+      },
+      { onConflict: "social_account_id" },
+    )
+
+  if (error) {
+    throw error
+  }
+}
+
+export function getTokenExpiresAt(expiresInSeconds?: number) {
+  if (!expiresInSeconds) {
+    return null
+  }
+
+  return new Date(Date.now() + expiresInSeconds * 1000).toISOString()
+}

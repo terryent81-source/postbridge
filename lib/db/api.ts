@@ -252,19 +252,26 @@ export async function connectSocialAccount(
     account.status = "connected"
     account.handle = input.handle ?? account.handle ?? `@${input.platform}_user`
     account.description = input.description ?? account.description
+    account.page_id = account.page_id ?? null
+    account.page_name = account.page_name ?? null
+    account.instagram_business_account_id =
+      account.instagram_business_account_id ?? null
     account.access_token = "mock_access_token"
     account.refresh_token = "mock_refresh_token"
     account.token_expires_at = expires
     account.connected_at = ts
     account.updated_at = ts
   } else {
-    account = {
+    const nextAccount: SocialAccount = {
       id: newId("sa"),
       user_id: userId,
       platform: input.platform,
       status: "connected",
       handle: input.handle ?? `@${input.platform}_user`,
       description: input.description ?? null,
+      page_id: null,
+      page_name: null,
+      instagram_business_account_id: null,
       access_token: "mock_access_token",
       refresh_token: "mock_refresh_token",
       token_expires_at: expires,
@@ -272,7 +279,8 @@ export async function connectSocialAccount(
       created_at: ts,
       updated_at: ts,
     }
-    db.socialAccounts().push(account)
+    db.socialAccounts().push(nextAccount)
+    account = nextAccount
   }
   notifyMockDbChanged("social-accounts")
   return clone(account)

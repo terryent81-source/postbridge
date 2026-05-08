@@ -4,6 +4,7 @@
 
 alter table public.social_accounts
   add column if not exists page_id text,
+  add column if not exists page_name text,
   add column if not exists instagram_business_account_id text;
 
 create index if not exists social_accounts_page_id_idx
