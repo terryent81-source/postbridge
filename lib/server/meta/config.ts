@@ -5,6 +5,7 @@ import { getMetaGraphApiVersion } from "@/lib/server/upload/mode"
 export function getMetaOAuthConfig(origin?: string) {
   const clientId = process.env.META_CLIENT_ID
   const clientSecret = process.env.META_CLIENT_SECRET
+  const configId = process.env.META_CONFIG_ID
   const redirectUri =
     process.env.META_REDIRECT_URI ||
     `${origin || process.env.NEXT_PUBLIC_APP_URL || ""}/api/auth/meta/callback`
@@ -24,16 +25,8 @@ export function getMetaOAuthConfig(origin?: string) {
   return {
     clientId,
     clientSecret,
+    configId,
     redirectUri,
     graphVersion: getMetaGraphApiVersion(),
   }
 }
-
-export const META_OAUTH_SCOPES = [
-  "pages_show_list",
-  "pages_read_engagement",
-  "pages_manage_posts",
-  "instagram_basic",
-  "instagram_content_publish",
-  "business_management",
-]

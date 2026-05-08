@@ -2,7 +2,7 @@ import { randomBytes } from "crypto"
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { createServerSupabaseClient } from "@/lib/supabase/server"
-import { META_OAUTH_SCOPES, getMetaOAuthConfig } from "@/lib/server/meta/config"
+import { getMetaOAuthConfig } from "@/lib/server/meta/config"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -34,6 +34,10 @@ export async function GET(request: Request) {
     )
   }
 
+  if (!config.configId) {
+    return NextResponse.json({ error: "Missing META_CONFIG_ID" }, { status: 500 })
+  }
+
   const state = randomBytes(32).toString("hex")
   const cookieStore = await cookies()
   cookieStore.set(META_OAUTH_STATE_COOKIE, state, {
@@ -48,8 +52,9 @@ export async function GET(request: Request) {
   url.searchParams.set("client_id", config.clientId)
   url.searchParams.set("redirect_uri", config.redirectUri)
   url.searchParams.set("state", state)
-  url.searchParams.set("scope", META_OAUTH_SCOPES.join(","))
   url.searchParams.set("response_type", "code")
+  url.searchParams.set("override_default_response_type", "true")
+  url.searchParams.set("config_id", config.configId)
 
   return NextResponse.redirect(url)
 }

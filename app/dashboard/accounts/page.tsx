@@ -39,6 +39,9 @@ type MetaAccount = {
 type MetaPage = {
   id: string
   name: string
+  category?: string
+  tasks?: string[]
+  permission_warning?: string | null
   instagram_business_account?: {
     id: string
     username?: string
@@ -179,7 +182,7 @@ export default function AccountsPage() {
       }
 
       await loadAccounts()
-      toast.success("업로드에 사용할 Page와 Instagram Business 계정을 저장했습니다.")
+      toast.success("업로드에 사용할 Facebook Page를 저장했습니다.")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Facebook Page 저장에 실패했습니다.")
     } finally {
@@ -219,15 +222,16 @@ export default function AccountsPage() {
     <>
       <PageHeader
         title="연결 계정"
-        description="Meta 계정을 연결하고 실제 업로드에 사용할 Facebook Page와 Instagram Business 계정을 선택합니다."
+        description="1차 테스트에서는 Meta OAuth 연결과 Facebook Page 목록 조회를 먼저 확인합니다."
       />
 
       <div className="space-y-6 px-4 py-6 sm:px-6">
         <Alert className="border-amber-500/30 bg-amber-500/10">
           <AlertTriangle className="h-4 w-4 text-amber-600" />
-          <AlertTitle>Meta 연결 안내</AlertTitle>
+          <AlertTitle>Meta 테스트 안내</AlertTitle>
           <AlertDescription>
-            Instagram 업로드를 사용하려면 Instagram Business 또는 Creator 계정이 Facebook Page에 연결되어 있어야 합니다.
+            현재 단계에서는 pages_show_list 권한으로 Facebook Page 목록을 안정적으로 조회합니다.
+            실제 게시 권한이 부족하면 추가 Meta 권한 설정이 필요합니다.
           </AlertDescription>
         </Alert>
 
@@ -317,7 +321,7 @@ export default function AccountsPage() {
 
         <Card className="border-border/80 shadow-sm">
           <CardHeader>
-            <CardTitle className="text-base">업로드 Page 선택</CardTitle>
+            <CardTitle className="text-base">Facebook Page 선택</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {pages.length === 0 ? (
@@ -349,6 +353,14 @@ export default function AccountsPage() {
                   <div className="rounded-md border bg-muted/30 p-4 text-sm">
                     <p className="font-medium">{selectedPage.name}</p>
                     <p className="mt-1 text-muted-foreground">Page ID: {selectedPage.id}</p>
+                    {selectedPage.category && (
+                      <p className="mt-1 text-muted-foreground">Category: {selectedPage.category}</p>
+                    )}
+                    {selectedPage.permission_warning && (
+                      <p className="mt-2 font-medium text-amber-700 dark:text-amber-300">
+                        {selectedPage.permission_warning}
+                      </p>
+                    )}
                     {selectedPage.instagram_business_account ? (
                       <p className="mt-1 text-muted-foreground">
                         연결된 Instagram:{" "}
@@ -357,8 +369,8 @@ export default function AccountsPage() {
                           selectedPage.instagram_business_account.id}
                       </p>
                     ) : (
-                      <p className="mt-1 text-amber-700 dark:text-amber-300">
-                        이 Page에는 Instagram Business 계정이 연결되어 있지 않습니다.
+                      <p className="mt-1 text-muted-foreground">
+                        Instagram Business 계정 정보는 추가 권한 설정 후 표시될 수 있습니다.
                       </p>
                     )}
                   </div>

@@ -5,10 +5,15 @@ import type { Platform } from "@/lib/db"
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role"
 import { getMetaGraphApiVersion } from "@/lib/server/upload/mode"
 
+const ADDITIONAL_META_PERMISSION_MESSAGE = "추가 Meta 권한 설정이 필요합니다"
+
 export type MetaPageAccount = {
   id: string
   name: string
+  category?: string
+  tasks?: string[]
   access_token?: string
+  permission_warning?: string | null
   instagram_business_account?: {
     id: string
     username?: string
@@ -36,11 +41,39 @@ export type SafeMetaPageAccount = Omit<MetaPageAccount, "access_token">
 
 export async function fetchMetaPages(userAccessToken: string) {
   const graphVersion = getMetaGraphApiVersion()
-  const url = new URL(`https://graph.facebook.com/${graphVersion}/me/accounts`)
-  url.searchParams.set(
-    "fields",
-    "id,name,access_token,instagram_business_account{id,username,name}",
+  const pages = await fetchMetaPageList(
+    graphVersion,
+    userAccessToken,
+    "id,name,access_token,category,tasks",
   )
+  const pagesWithWarnings = pages.map(addPermissionWarning)
+
+  try {
+    const instagramPages = await fetchMetaPageList(
+      graphVersion,
+      userAccessToken,
+      "id,instagram_business_account{id,username,name}",
+    )
+    const instagramByPageId = new Map(
+      instagramPages.map((page) => [page.id, page.instagram_business_account]),
+    )
+
+    return pagesWithWarnings.map((page) => ({
+      ...page,
+      instagram_business_account: instagramByPageId.get(page.id),
+    }))
+  } catch {
+    return pagesWithWarnings
+  }
+}
+
+async function fetchMetaPageList(
+  graphVersion: string,
+  userAccessToken: string,
+  fields: string,
+) {
+  const url = new URL(`https://graph.facebook.com/${graphVersion}/me/accounts`)
+  url.searchParams.set("fields", fields)
   url.searchParams.set("access_token", userAccessToken)
 
   const response = await fetch(url)
@@ -54,6 +87,22 @@ export async function fetchMetaPages(userAccessToken: string) {
   }
 
   return payload.data ?? []
+}
+
+function addPermissionWarning(page: MetaPageAccount): MetaPageAccount {
+  const canPublish =
+    Boolean(page.access_token) &&
+    Array.isArray(page.tasks) &&
+    page.tasks.includes("CREATE_CONTENT")
+
+  if (canPublish) {
+    return { ...page, permission_warning: null }
+  }
+
+  return {
+    ...page,
+    permission_warning: ADDITIONAL_META_PERMISSION_MESSAGE,
+  }
 }
 
 export function stripMetaPageToken(page: MetaPageAccount): SafeMetaPageAccount {
@@ -178,13 +227,16 @@ export async function saveSelectedMetaPage({
     page.instagram_business_account?.username ??
     page.instagram_business_account?.name ??
     null
+  const permissionWarning = page.permission_warning ?? null
 
   const facebookAccount = await upsertSocialAccount(supabase, {
     userId,
     platform: "facebook",
     status: "connected",
     handle: page.name,
-    description: "Facebook Page 업로드에 사용할 Page가 선택되었습니다.",
+    description:
+      permissionWarning ??
+      "Facebook Page 업로드에 사용할 Page가 선택되었습니다.",
     pageId: page.id,
     pageName: page.name,
     instagramBusinessAccountId,
