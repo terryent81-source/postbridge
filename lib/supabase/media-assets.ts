@@ -125,7 +125,7 @@ export async function uploadPostMediaAssets({
     if (upload.optimizationStatus === "failed") {
       console.warn("[media-upload] Supabase Storage upload skipped before upload", {
         fileName: upload.originalFile.name,
-        originalSize: upload.originalSize,
+        fileSize: upload.originalSize,
         optimizationStatus: upload.optimizationStatus,
       })
 
@@ -149,10 +149,25 @@ export async function uploadPostMediaAssets({
     ) {
       console.warn("[media-upload] Supabase Storage upload skipped before upload", {
         fileName: upload.originalFile.name,
-        originalSize: upload.originalSize,
+        fileSize: upload.originalSize,
         reason: "video_exceeds_300mb_without_optimization",
       })
-      throw new Error(`${file.name}: 300MB 초과 영상은 자동 최적화 후 업로드할 수 있습니다.`)
+      const failedRow = await insertFailedOptimizationMediaAsset({
+        supabase,
+        userId: user.id,
+        postId,
+        upload: {
+          ...upload,
+          optimizationStatus: "failed",
+          optimizationError: upload.optimizationError ?? VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
+          optimizationAttempts: Math.max(1, upload.optimizationAttempts),
+        },
+        mediaType,
+        deleteAfter,
+      })
+      uploadedRows.push(failedRow)
+
+      throw new Error(formatOptimizationUploadError(VIDEO_OPTIMIZER_UNAVAILABLE_ERROR))
     }
 
     const originalStoragePath = `${user.id}/${postId}/original/${buildStorageFileName(upload.originalFile.name)}`
@@ -161,6 +176,30 @@ export async function uploadPostMediaAssets({
         ? `${user.id}/${postId}/optimized/${buildStorageFileName(file.name)}`
         : null
     const storagePath = optimizedStoragePath ?? originalStoragePath
+
+    if (file.size > VIDEO_MAX_BYTES) {
+      console.warn("[media-upload] Supabase Storage upload skipped before upload", {
+        fileName: file.name,
+        fileSize: file.size,
+        reason: "storage_upload_size_guard",
+      })
+      const failedRow = await insertFailedOptimizationMediaAsset({
+        supabase,
+        userId: user.id,
+        postId,
+        upload: {
+          ...upload,
+          optimizationStatus: "failed",
+          optimizationError: VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
+          optimizationAttempts: Math.max(1, upload.optimizationAttempts),
+        },
+        mediaType,
+        deleteAfter,
+      })
+      uploadedRows.push(failedRow)
+
+      throw new Error(formatOptimizationUploadError(VIDEO_OPTIMIZER_UNAVAILABLE_ERROR))
+    }
 
     const { error: uploadError } = await supabase.storage
       .from(POST_MEDIA_BUCKET)
@@ -210,6 +249,57 @@ export async function uploadPostMediaAssets({
   }
 
   return uploadedRows
+}
+
+export async function recordFailedVideoOptimizationMediaAssets({
+  postId,
+  files,
+  deleteAfter = null,
+}: {
+  postId: string
+  files: PreparedMediaUpload[]
+  deleteAfter?: Date | null
+}) {
+  if (files.length === 0) {
+    return []
+  }
+
+  const supabase = createBrowserSupabaseClient()
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    throw new Error("로그인이 필요합니다.")
+  }
+
+  const rows: SupabaseMediaAssetRow[] = []
+
+  for (const upload of files) {
+    console.warn("[media-upload] Supabase Storage upload skipped before upload", {
+      fileName: upload.originalFile.name,
+      fileSize: upload.originalSize,
+    })
+
+    rows.push(
+      await insertFailedOptimizationMediaAsset({
+        supabase,
+        userId: user.id,
+        postId,
+        upload: {
+          ...upload,
+          optimizationStatus: "failed",
+          optimizationError: upload.optimizationError ?? VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
+          optimizationAttempts: Math.max(1, upload.optimizationAttempts),
+        },
+        mediaType: validatePostMediaFile(upload.originalFile),
+        deleteAfter,
+      }),
+    )
+  }
+
+  return rows
 }
 
 async function insertFailedOptimizationMediaAsset({

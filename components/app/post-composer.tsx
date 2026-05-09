@@ -50,6 +50,7 @@ import {
 } from "@/lib/db"
 import {
   markMyPostMediaPendingDelete,
+  recordFailedVideoOptimizationMediaAssets,
   uploadPostMediaAssets,
   validatePostMediaFile,
 } from "@/lib/supabase/media-assets"
@@ -79,6 +80,8 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import {
   prepareMediaFileForUpload,
+  isVideoOptimizationRequired,
+  isVideoOptimizerAvailable,
   VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
   VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE,
   type PreparedMediaUpload,
@@ -169,6 +172,13 @@ export function PostComposer({
       try {
         validatePostMediaFile(file)
 
+        const needsOptimizer = isVideoOptimizationRequired(file)
+        const optimizerUnavailable = needsOptimizer && !isVideoOptimizerAvailable()
+
+        if (optimizerUnavailable) {
+          toast.error(VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE)
+        }
+
         return [{
           id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 7)}`,
           name: file.name,
@@ -176,6 +186,8 @@ export function PostComposer({
           type: file.type,
           url: URL.createObjectURL(file),
           file,
+          optimizationStatus: optimizerUnavailable ? "failed" : undefined,
+          optimizationMessage: optimizerUnavailable ? "최적화 실패" : undefined,
         }]
       } catch (error) {
         errors.push(error instanceof Error ? error.message : `${file.name}: 업로드할 수 없습니다.`)
@@ -236,7 +248,7 @@ export function PostComposer({
         description: "Supabase posts 테이블에 draft로 저장되었습니다.",
       })
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "임시저장에 실패했습니다.")
+      toast.error(formatComposerErrorMessage(error, "임시저장에 실패했습니다."))
     } finally {
       setIsSavingDraft(false)
     }
@@ -320,9 +332,13 @@ export function PostComposer({
       )
       */
 
-      toast.error(error instanceof Error ? error.message : "업로드에 실패했습니다.", {
+      const safeMessage = formatComposerErrorMessage(error, "업로드에 실패했습니다.")
+      toast.error(safeMessage, {
         id,
-        description: "연결되지 않은 플랫폼을 선택하면 실패 로그가 mock으로 생성됩니다.",
+        description:
+          safeMessage === VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE
+            ? undefined
+            : "연결되지 않은 플랫폼을 선택하면 실패 로그가 mock으로 생성됩니다.",
       })
     } finally {
       setIsPosting(false)
@@ -354,6 +370,16 @@ export function PostComposer({
     }
 
     return message ?? "업로드에 실패했습니다."
+  }
+
+  function formatComposerErrorMessage(error: unknown, fallback: string) {
+    const message = error instanceof Error ? error.message : fallback
+
+    if (message === VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE) {
+      return VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE
+    }
+
+    return message || fallback
   }
 
   function getFirstYouTubeResultUrl(
@@ -430,6 +456,20 @@ export function PostComposer({
 
     try {
       const files = await prepareMediaForUpload()
+      const unavailableOptimizerFiles = files.filter(
+        (file) => file.optimizationError === VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
+      )
+
+      if (unavailableOptimizerFiles.length > 0) {
+        await recordFailedVideoOptimizationMediaAssets({
+          postId,
+          files: unavailableOptimizerFiles,
+          deleteAfter: cleanup?.deleteAfter,
+        })
+        toast.error(VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE, { id: toastId })
+        throw new Error(VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE)
+      }
+
       setMedia((current) =>
         current.map((item) => ({
           ...item,
@@ -457,10 +497,16 @@ export function PostComposer({
       )
       return assets.length
     } catch (error) {
-      toast.error("미디어 업로드에 실패했습니다", {
-        id: toastId,
-        description: error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요.",
-      })
+      const message =
+        error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요."
+      if (message === VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE) {
+        toast.error(VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE, { id: toastId })
+      } else {
+        toast.error("미디어 업로드에 실패했습니다", {
+          id: toastId,
+          description: message,
+        })
+      }
       throw error
     }
   }
@@ -1022,7 +1068,12 @@ function ScheduleDialog({
       })
     } catch (error) {
       setSubmitting(false)
-      toast.error(error instanceof Error ? error.message : "예약에 실패했습니다.")
+      const message = error instanceof Error ? error.message : "예약에 실패했습니다."
+      toast.error(
+        message === VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE
+          ? VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE
+          : message,
+      )
     }
   }
 

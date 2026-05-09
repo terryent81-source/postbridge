@@ -176,6 +176,16 @@ export async function prepareMediaFileForUpload(
   }
 }
 
+export function isVideoOptimizationRequired(file: File) {
+  return file.type.startsWith("video/") && file.size > VIDEO_OPTIMIZATION_TARGET_BYTES
+}
+
+export function isVideoOptimizerAvailable() {
+  return Boolean(
+    typeof window !== "undefined" && window.PostBridgeVideoOptimizer?.optimize,
+  )
+}
+
 export function buildFfmpegOptimizationArgs(
   settings: NonNullable<PreparedMediaUpload["optimizationSettings"]>,
 ) {
@@ -201,8 +211,11 @@ export function buildFfmpegOptimizationArgs(
 }
 
 function getVideoOptimizerAdapter(): VideoOptimizerAdapter | null {
-  if (typeof window !== "undefined" && window.PostBridgeVideoOptimizer?.optimize) {
-    return window.PostBridgeVideoOptimizer.optimize
+  const optimizer =
+    typeof window !== "undefined" ? window.PostBridgeVideoOptimizer?.optimize : null
+
+  if (optimizer) {
+    return optimizer
   }
 
   return null
