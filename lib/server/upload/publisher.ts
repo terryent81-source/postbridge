@@ -232,7 +232,9 @@ async function getSocialAccount(
 ) {
   const { data, error } = await supabase
     .from("social_accounts")
-    .select("id, user_id, platform, status, page_id, page_name, has_page_access_token, instagram_business_account_id, token_expires_at")
+    .select(
+      "id, user_id, platform, status, page_id, page_name, has_page_access_token, instagram_business_account_id, token_expires_at, youtube_shorts_auto_hashtag, youtube_shorts_hashtag_location",
+    )
     .eq("user_id", userId)
     .eq("platform", platform)
     .maybeSingle()

@@ -33,6 +33,8 @@ export type SocialAccountForUpload = {
   has_page_access_token?: boolean | null
   instagram_business_account_id: string | null
   token_expires_at: string | null
+  youtube_shorts_auto_hashtag?: boolean | null
+  youtube_shorts_hashtag_location?: "title" | "description" | null
 }
 
 export type SocialAccountSecretForUpload = {

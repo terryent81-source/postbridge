@@ -117,7 +117,66 @@ export async function uploadToInstagram(
 export async function uploadToYouTube(
   context: PlatformUploadContext,
 ): Promise<PlatformUploadResult> {
-  return fail(context, "YouTube real uploader is not implemented yet")
+  if (!context.secret?.access_token) {
+    return fail(context, "YouTube access token is missing")
+  }
+
+  const media = context.mediaAssets.find((asset) => asset.media_type === "video")
+
+  if (!media) {
+    return fail(context, "YouTube upload requires a video file")
+  }
+
+  const mediaUrl = await createSignedMediaUrl(context, media)
+  const mediaResponse = await fetch(mediaUrl)
+
+  if (!mediaResponse.ok) {
+    return fail(context, "Could not read the video file for YouTube upload")
+  }
+
+  const metadata = buildYouTubeVideoMetadata(context)
+  const boundary = `postbridge_${crypto.randomUUID().replace(/-/g, "")}`
+  const mediaBytes = new Uint8Array(await mediaResponse.arrayBuffer())
+  const body = new Blob(
+    [
+      `--${boundary}\r\n`,
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n",
+      JSON.stringify(metadata),
+      "\r\n",
+      `--${boundary}\r\n`,
+      `Content-Type: ${media.mime_type || "video/mp4"}\r\n\r\n`,
+      mediaBytes,
+      "\r\n",
+      `--${boundary}--\r\n`,
+    ],
+    { type: `multipart/related; boundary=${boundary}` },
+  )
+
+  const response = await fetch(
+    "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=multipart&part=snippet,status",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${context.secret.access_token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    },
+  )
+  const payload = (await response.json().catch(() => ({}))) as {
+    id?: string
+    error?: { message?: string }
+  }
+
+  if (!response.ok) {
+    return fail(context, payload.error?.message ?? "YouTube upload failed")
+  }
+
+  return {
+    platform: context.platform,
+    status: "success",
+    platformPostId: payload.id ?? null,
+  }
 }
 
 export async function uploadUnsupportedPlatform(
@@ -179,6 +238,66 @@ function parseGraphResult(
     status: "success",
     platformPostId: response.body.id ?? response.body.post_id ?? null,
   }
+}
+
+function buildYouTubeVideoMetadata(context: PlatformUploadContext) {
+  const title = withOptionalShortsHashtag(
+    context.post.title.trim() || "PostBridge Upload",
+    "title",
+    context,
+  )
+  const description = withOptionalShortsHashtag(
+    context.post.content.trim(),
+    "description",
+    context,
+  )
+
+  return {
+    snippet: {
+      title: truncateYouTubeTitle(title),
+      description,
+      categoryId: "22",
+    },
+    status: {
+      privacyStatus: "private",
+      selfDeclaredMadeForKids: false,
+    },
+  }
+}
+
+function withOptionalShortsHashtag(
+  value: string,
+  field: "title" | "description",
+  context: PlatformUploadContext,
+) {
+  if (!context.account?.youtube_shorts_auto_hashtag) {
+    return value
+  }
+
+  if (context.account.youtube_shorts_hashtag_location !== field) {
+    return value
+  }
+
+  if (/#shorts\b/i.test(value)) {
+    return value
+  }
+
+  return field === "title"
+    ? `${value} #Shorts`
+    : [value, "#Shorts"].filter(Boolean).join("\n\n")
+}
+
+function truncateYouTubeTitle(value: string) {
+  if (value.length <= 100) {
+    return value
+  }
+
+  if (/#shorts\b/i.test(value)) {
+    const suffix = " #Shorts"
+    return `${value.slice(0, 100 - suffix.length).trimEnd()}${suffix}`
+  }
+
+  return value.slice(0, 100)
 }
 
 function fail(context: PlatformUploadContext, message: string): PlatformUploadResult {

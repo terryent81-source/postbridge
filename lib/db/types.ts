@@ -121,6 +121,8 @@ export interface SocialAccount {
   page_tasks?: string[] | null
   has_page_access_token?: boolean
   instagram_business_account_id: string | null
+  youtube_shorts_auto_hashtag?: boolean
+  youtube_shorts_hashtag_location?: "title" | "description"
   access_token: string | null
   refresh_token: string | null
   token_expires_at: ISODateString | null

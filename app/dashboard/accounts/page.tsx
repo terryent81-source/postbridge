@@ -19,11 +19,12 @@ import {
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
+type AccountPlatform = "facebook" | "instagram" | "youtube"
 type MetaPlatform = "facebook" | "instagram"
 
-type MetaAccount = {
+type SocialAccount = {
   id: string
-  platform: MetaPlatform
+  platform: AccountPlatform
   status: "connected" | "needs_connection" | "expired" | "token_missing"
   handle: string | null
   description: string | null
@@ -35,8 +36,8 @@ type MetaAccount = {
   instagram_business_account_id: string | null
   token_expires_at: string | null
   connected_at: string | null
-  created_at: string
-  updated_at: string
+  youtube_shorts_auto_hashtag: boolean
+  youtube_shorts_hashtag_location: "title" | "description"
 }
 
 type MetaPage = {
@@ -52,7 +53,7 @@ type MetaPage = {
   }
 }
 
-type MetaErrorDetails = {
+type ErrorDetails = {
   step?: string
   status?: number
   type?: string
@@ -62,20 +63,22 @@ type MetaErrorDetails = {
   message?: string
 }
 
-type MetaApiResponse<T> =
+type ApiResponse<T> =
   | ({ ok: true } & T)
   | {
       ok: false
       error: string
-      message: string
-      details?: MetaErrorDetails | string | null
+      message?: string
+      details?: ErrorDetails | string | null
     }
 
-const PLATFORMS: MetaPlatform[] = ["facebook", "instagram"]
+const ACCOUNT_PLATFORMS: AccountPlatform[] = ["facebook", "instagram", "youtube"]
+const META_PLATFORMS: MetaPlatform[] = ["facebook", "instagram"]
 
-const PLATFORM_NAMES: Record<MetaPlatform, string> = {
+const PLATFORM_NAMES: Record<AccountPlatform, string> = {
   facebook: "Facebook Page",
   instagram: "Instagram Business",
+  youtube: "YouTube / Shorts",
 }
 
 const STATUS_LABELS = {
@@ -95,13 +98,13 @@ const STATUS_TONE: Record<UiStatus, string> = {
 }
 
 export default function AccountsPage() {
-  const [accounts, setAccounts] = useState<MetaAccount[]>([])
+  const [accounts, setAccounts] = useState<SocialAccount[]>([])
   const [pages, setPages] = useState<MetaPage[]>([])
   const [selectedPageId, setSelectedPageId] = useState("")
   const [loadingAccounts, setLoadingAccounts] = useState(true)
   const [loadingPages, setLoadingPages] = useState(false)
   const [savingPage, setSavingPage] = useState(false)
-  const [disconnecting, setDisconnecting] = useState<MetaPlatform | null>(null)
+  const [busy, setBusy] = useState<AccountPlatform | null>(null)
 
   const accountsByPlatform = useMemo(
     () => new Map(accounts.map((account) => [account.platform, account])),
@@ -116,16 +119,16 @@ export default function AccountsPage() {
       const { data, error } = await supabase
         .from("social_accounts")
         .select(
-          "id, platform, status, handle, description, page_id, page_name, page_category, page_tasks, has_page_access_token, instagram_business_account_id, token_expires_at, connected_at, created_at, updated_at",
+          "id, platform, status, handle, description, page_id, page_name, page_category, page_tasks, has_page_access_token, instagram_business_account_id, token_expires_at, connected_at, youtube_shorts_auto_hashtag, youtube_shorts_hashtag_location",
         )
-        .in("platform", PLATFORMS)
+        .in("platform", ACCOUNT_PLATFORMS)
         .order("platform", { ascending: true })
 
       if (error) {
         throw error
       }
 
-      setAccounts((data ?? []) as MetaAccount[])
+      setAccounts((data ?? []) as SocialAccount[])
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "연결 계정을 불러오지 못했습니다.")
     } finally {
@@ -138,7 +141,7 @@ export default function AccountsPage() {
 
     try {
       const response = await fetch("/api/auth/meta/pages", { cache: "no-store" })
-      const payload = (await response.json().catch(() => null)) as MetaApiResponse<{
+      const payload = (await response.json().catch(() => null)) as ApiResponse<{
         pages: MetaPage[]
       }> | null
 
@@ -164,6 +167,7 @@ export default function AccountsPage() {
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
     const metaStatus = searchParams.get("meta")
+    const youtubeStatus = searchParams.get("youtube")
     const error = searchParams.get("error")
     const errorCode = searchParams.get("error_code")
     const message = searchParams.get("message")
@@ -173,14 +177,15 @@ export default function AccountsPage() {
       loadPages()
     }
 
-    if (error) {
-      toast.error(formatOAuthCallbackError(error, errorCode, message))
+    if (youtubeStatus === "connected") {
+      toast.success("YouTube 채널 연결이 완료되었습니다.")
+      loadAccounts()
     }
-  }, [loadPages])
 
-  const handleConnectMeta = () => {
-    window.location.href = "/api/auth/meta/start"
-  }
+    if (error) {
+      toast.error([error, errorCode, message].filter(Boolean).join(" - "))
+    }
+  }, [loadAccounts, loadPages])
 
   const handleSavePage = async () => {
     if (!selectedPageId) {
@@ -196,7 +201,7 @@ export default function AccountsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pageId: selectedPageId }),
       })
-      const payload = (await response.json().catch(() => null)) as MetaApiResponse<{
+      const payload = (await response.json().catch(() => null)) as ApiResponse<{
         accounts: unknown
       }> | null
 
@@ -213,21 +218,25 @@ export default function AccountsPage() {
     }
   }
 
-  const handleDisconnect = async (platform: MetaPlatform) => {
-    setDisconnecting(platform)
+  const handleDisconnect = async (platform: AccountPlatform) => {
+    setBusy(platform)
 
     try {
-      const response = await fetch("/api/auth/meta/disconnect", {
+      const endpoint =
+        platform === "youtube"
+          ? "/api/auth/youtube/disconnect"
+          : "/api/auth/meta/disconnect"
+      const response = await fetch(endpoint, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform }),
+        body: platform === "youtube" ? undefined : JSON.stringify({ platform }),
       })
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string
-      }
+      const payload = (await response.json().catch(() => null)) as ApiResponse<{
+        account: unknown
+      }> | null
 
-      if (!response.ok) {
-        throw new Error(payload.error ?? "연결 해제에 실패했습니다.")
+      if (!response.ok || !payload?.ok) {
+        throw new Error(formatApiError(payload, "연결 해제에 실패했습니다."))
       }
 
       await loadAccounts()
@@ -235,33 +244,66 @@ export default function AccountsPage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "연결 해제에 실패했습니다.")
     } finally {
-      setDisconnecting(null)
+      setBusy(null)
+    }
+  }
+
+  const updateYouTubeShortsSettings = async (
+    autoHashtag: boolean,
+    hashtagLocation: "title" | "description",
+  ) => {
+    setBusy("youtube")
+
+    try {
+      const response = await fetch("/api/auth/youtube/channel", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoHashtag, hashtagLocation }),
+      })
+      const payload = (await response.json().catch(() => null)) as ApiResponse<{
+        account: SocialAccount
+      }> | null
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(formatApiError(payload, "Shorts 설정 저장에 실패했습니다."))
+      }
+
+      await loadAccounts()
+      toast.success("Shorts 설정을 저장했습니다.")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Shorts 설정 저장에 실패했습니다.")
+    } finally {
+      setBusy(null)
     }
   }
 
   const selectedPage = pages.find((page) => page.id === selectedPageId)
+  const youtubeAccount = accountsByPlatform.get("youtube")
 
   return (
     <>
       <PageHeader
         title="연결 계정"
-        description="1차 테스트에서는 Meta OAuth 연결과 Facebook Page 목록 조회를 먼저 확인합니다."
+        description="Meta 계정과 YouTube 채널을 연결하고 실제 업로드 준비 상태를 확인합니다."
       />
 
       <div className="space-y-6 px-4 py-6 sm:px-6">
         <Alert className="border-amber-500/30 bg-amber-500/10">
           <AlertTriangle className="h-4 w-4 text-amber-600" />
-          <AlertTitle>Meta 테스트 안내</AlertTitle>
+          <AlertTitle>연결 안내</AlertTitle>
           <AlertDescription>
-            현재 단계에서는 pages_show_list 권한으로 Facebook Page 목록을 안정적으로 조회합니다.
-            Page access token 또는 실제 게시 권한이 부족하면 추가 Meta 권한 설정이 필요합니다.
+            YouTube Shorts는 세로 영상 사용을 권장합니다. 제목이나 설명에 #Shorts를 자동으로 붙일 수 있습니다.
           </AlertDescription>
         </Alert>
 
         <div className="flex flex-wrap gap-2">
-          <Button className="gap-2" onClick={handleConnectMeta}>
+          <Button className="gap-2" onClick={() => (window.location.href = "/api/auth/meta/start")}>
             <Plug className="h-4 w-4" />
             Facebook / Instagram 연결
+          </Button>
+          <Button className="gap-2" variant="outline" onClick={() => (window.location.href = "/api/auth/youtube/start")}>
+            <Plug className="h-4 w-4" />
+            YouTube 연결
           </Button>
           <Button
             variant="outline"
@@ -278,17 +320,17 @@ export default function AccountsPage() {
           </Button>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-3">
           {loadingAccounts && (
             <div className="col-span-full flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               연결 상태를 불러오는 중입니다.
             </div>
           )}
-          {PLATFORMS.map((platform) => {
+          {ACCOUNT_PLATFORMS.map((platform) => {
             const account = accountsByPlatform.get(platform)
             const status = getUiStatus(account)
-            const isBusy = disconnecting === platform
+            const isBusy = busy === platform
 
             return (
               <Card key={platform} className="border-border/80 shadow-sm">
@@ -310,13 +352,13 @@ export default function AccountsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-1 text-sm text-muted-foreground">
-                    <p>{account?.description ?? "아직 Meta 계정 연결 정보가 없습니다."}</p>
-                    {account?.page_id && <p>Page ID: {account.page_id}</p>}
+                    <p>{account?.description ?? "아직 연결 정보가 없습니다."}</p>
+                    {account?.page_id && <p>ID: {account.page_id}</p>}
                     {account?.page_category && <p>Category: {account.page_category}</p>}
                     {account?.page_tasks?.length ? (
                       <p>Tasks: {account.page_tasks.join(", ")}</p>
                     ) : null}
-                    {account?.page_id && !account.has_page_access_token && (
+                    {platform !== "youtube" && account?.page_id && !account.has_page_access_token && (
                       <p className="font-medium text-amber-700 dark:text-amber-300">
                         추가 Meta 권한 설정이 필요합니다. 현재는 Page 목록 조회만 가능합니다.
                       </p>
@@ -393,22 +435,53 @@ export default function AccountsPage() {
                         {selectedPage.permission_warning}
                       </p>
                     )}
-                    {selectedPage.instagram_business_account ? (
-                      <p className="mt-1 text-muted-foreground">
-                        연결된 Instagram:{" "}
-                        {selectedPage.instagram_business_account.username ??
-                          selectedPage.instagram_business_account.name ??
-                          selectedPage.instagram_business_account.id}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-muted-foreground">
-                        Instagram Business 계정 정보는 추가 권한 설정 후 표시될 수 있습니다.
-                      </p>
-                    )}
                   </div>
                 )}
               </>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/80 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">YouTube Shorts 옵션</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <p className="text-muted-foreground">
+              Shorts 업로드에는 9:16 세로 영상 사용을 권장합니다. 자동 #Shorts 옵션은 실제 YouTube 업로드 시 제목 또는 설명에 태그를 보강합니다.
+            </p>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={youtubeAccount?.youtube_shorts_auto_hashtag ?? true}
+                disabled={!youtubeAccount || busy === "youtube"}
+                onChange={(event) =>
+                  updateYouTubeShortsSettings(
+                    event.target.checked,
+                    youtubeAccount?.youtube_shorts_hashtag_location ?? "description",
+                  )
+                }
+              />
+              #Shorts 자동 추가
+            </label>
+            <Select
+              value={youtubeAccount?.youtube_shorts_hashtag_location ?? "description"}
+              disabled={!youtubeAccount || busy === "youtube"}
+              onValueChange={(value) =>
+                updateYouTubeShortsSettings(
+                  youtubeAccount?.youtube_shorts_auto_hashtag ?? true,
+                  value === "title" ? "title" : "description",
+                )
+              }
+            >
+              <SelectTrigger className="w-full sm:w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="description">설명에 추가</SelectItem>
+                <SelectItem value="title">제목에 추가</SelectItem>
+              </SelectContent>
+            </Select>
           </CardContent>
         </Card>
       </div>
@@ -416,7 +489,7 @@ export default function AccountsPage() {
   )
 }
 
-function getUiStatus(account?: MetaAccount): UiStatus {
+function getUiStatus(account?: SocialAccount): UiStatus {
   if (!account) {
     return "not_connected"
   }
@@ -436,7 +509,7 @@ function getUiStatus(account?: MetaAccount): UiStatus {
   return "needs_connection"
 }
 
-function formatApiError(payload: MetaApiResponse<unknown> | null, fallback: string) {
+function formatApiError(payload: ApiResponse<unknown> | null, fallback: string) {
   if (!payload || payload.ok) {
     return fallback
   }
@@ -450,9 +523,7 @@ function formatApiError(payload: MetaApiResponse<unknown> | null, fallback: stri
     .join(" - ")
 }
 
-function formatErrorDetails(
-  details: MetaErrorDetails | string | null | undefined,
-) {
+function formatErrorDetails(details: ErrorDetails | string | null | undefined) {
   if (!details) {
     return []
   }
@@ -472,14 +543,6 @@ function formatErrorDetails(
     details.fbtrace_id ? `fbtrace_id=${details.fbtrace_id}` : null,
     details.message ? `message=${details.message}` : null,
   ].filter(Boolean)
-}
-
-function formatOAuthCallbackError(
-  error: string,
-  errorCode: string | null,
-  message: string | null,
-) {
-  return [error, errorCode, message].filter(Boolean).join(" - ")
 }
 
 function formatDate(value: string) {
