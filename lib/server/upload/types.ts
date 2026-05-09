@@ -69,5 +69,9 @@ export type PlatformUploadResult = {
       youtubeUrl?: string
       youtubeStudioUrl?: string
     }
+    tiktok?: {
+      provider?: "tiktok"
+      mock?: boolean
+    }
   } | null
 }

@@ -198,6 +198,22 @@ export async function uploadToYouTube(
   }
 }
 
+export async function uploadToTikTok(
+  context: PlatformUploadContext,
+): Promise<PlatformUploadResult> {
+  return {
+    platform: context.platform,
+    status: "failed",
+    errorMessage: "TikTok real uploader is not implemented yet",
+    platformMetadata: {
+      tiktok: {
+        provider: "tiktok",
+        mock: false,
+      },
+    },
+  }
+}
+
 function isYouTubeAuthError(status: number, message: string | undefined) {
   return (
     status === 401 ||

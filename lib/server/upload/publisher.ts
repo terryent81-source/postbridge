@@ -6,6 +6,7 @@ import { getPlatformUploadMode, getUploadMode } from "@/lib/server/upload/mode"
 import {
   uploadToFacebook,
   uploadToInstagram,
+  uploadToTikTok,
   uploadToYouTube,
   uploadUnsupportedPlatform,
 } from "@/lib/server/upload/platform-uploaders"
@@ -54,7 +55,11 @@ export async function publishPostWithUploader(
         uploadMode,
         status: "success",
         platformPostId: `mock_${platform}_${post.id}`,
-        platformMetadata: getUploadLogPlatformMetadata(post, platform),
+        platformMetadata: getUploadLogPlatformMetadata(post, platform, {
+          status: "success",
+          uploadMode,
+          platformPostId: `mock_${platform}_${post.id}`,
+        }),
       })
       continue
     }
@@ -120,7 +125,11 @@ export async function failPostWithUploadLogs(
       uploadMode: platformUploadMode,
       status: "failed",
       errorMessage: reason,
-      platformMetadata: getUploadLogPlatformMetadata(post, platform),
+      platformMetadata: getUploadLogPlatformMetadata(post, platform, {
+        status: "failed",
+        uploadMode: platformUploadMode,
+        platformPostId: null,
+      }),
     }
   })
 
@@ -219,6 +228,10 @@ async function uploadRealPlatform(
 
     if (platform === "youtube") {
       return withUploadMode(await uploadToYouTube(context), uploadMode)
+    }
+
+    if (platform === "tiktok") {
+      return withUploadMode(await uploadToTikTok(context), uploadMode)
     }
 
     return withUploadMode(await uploadUnsupportedPlatform(context), uploadMode)
@@ -381,6 +394,15 @@ function getUploadLogPlatformMetadata(
   >,
 ) {
   if (platform !== "youtube") {
+    if (platform === "tiktok") {
+      return {
+        tiktok: {
+          provider: "tiktok" as const,
+          mock: result?.uploadMode === "mock",
+        },
+      }
+    }
+
     return {}
   }
 

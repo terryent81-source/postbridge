@@ -20,6 +20,10 @@ export function getPlatformUploadMode(
     return parseUploadMode(process.env.META_UPLOAD_MODE, fallback)
   }
 
+  if (platform === "tiktok") {
+    return parseUploadMode(process.env.TIKTOK_UPLOAD_MODE, fallback)
+  }
+
   return fallback
 }
 

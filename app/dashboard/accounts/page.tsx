@@ -19,7 +19,7 @@ import {
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
-type AccountPlatform = "facebook" | "instagram" | "youtube"
+type AccountPlatform = "facebook" | "instagram" | "youtube" | "tiktok"
 type MetaPlatform = "facebook" | "instagram"
 
 type SocialAccount = {
@@ -72,13 +72,14 @@ type ApiResponse<T> =
       details?: ErrorDetails | string | null
     }
 
-const ACCOUNT_PLATFORMS: AccountPlatform[] = ["facebook", "instagram", "youtube"]
+const ACCOUNT_PLATFORMS: AccountPlatform[] = ["facebook", "instagram", "youtube", "tiktok"]
 const META_PLATFORMS: MetaPlatform[] = ["facebook", "instagram"]
 
 const PLATFORM_NAMES: Record<AccountPlatform, string> = {
   facebook: "Facebook Page",
   instagram: "Instagram Business",
   youtube: "YouTube / Shorts",
+  tiktok: "TikTok",
 }
 
 const STATUS_LABELS = {
@@ -168,6 +169,7 @@ export default function AccountsPage() {
     const searchParams = new URLSearchParams(window.location.search)
     const metaStatus = searchParams.get("meta")
     const youtubeStatus = searchParams.get("youtube")
+    const tiktokStatus = searchParams.get("tiktok")
     const error = searchParams.get("error")
     const errorCode = searchParams.get("error_code")
     const message = searchParams.get("message")
@@ -179,6 +181,11 @@ export default function AccountsPage() {
 
     if (youtubeStatus === "connected") {
       toast.success("YouTube 채널 연결이 완료되었습니다.")
+      loadAccounts()
+    }
+
+    if (tiktokStatus === "connected") {
+      toast.success("TikTok 계정 연결이 완료되었습니다.")
       loadAccounts()
     }
 
@@ -225,11 +232,16 @@ export default function AccountsPage() {
       const endpoint =
         platform === "youtube"
           ? "/api/auth/youtube/disconnect"
+          : platform === "tiktok"
+            ? "/api/auth/tiktok/disconnect"
           : "/api/auth/meta/disconnect"
       const response = await fetch(endpoint, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: platform === "youtube" ? undefined : JSON.stringify({ platform }),
+        body:
+          platform === "youtube" || platform === "tiktok"
+            ? undefined
+            : JSON.stringify({ platform }),
       })
       const payload = (await response.json().catch(() => null)) as ApiResponse<{
         account: unknown
@@ -293,6 +305,7 @@ export default function AccountsPage() {
           <AlertTitle>연결 안내</AlertTitle>
           <AlertDescription>
             YouTube Shorts는 세로 영상 사용을 권장합니다. 제목이나 설명에 #Shorts를 자동으로 붙일 수 있습니다.
+            TikTok은 현재 mock 업로드 모드입니다.
           </AlertDescription>
         </Alert>
 
@@ -304,6 +317,10 @@ export default function AccountsPage() {
           <Button className="gap-2" variant="outline" onClick={() => (window.location.href = "/api/auth/youtube/start")}>
             <Plug className="h-4 w-4" />
             YouTube 연결
+          </Button>
+          <Button className="gap-2" variant="outline" onClick={() => (window.location.href = "/api/auth/tiktok/start")}>
+            <Plug className="h-4 w-4" />
+            TikTok 연결
           </Button>
           <Button
             variant="outline"
@@ -320,7 +337,7 @@ export default function AccountsPage() {
           </Button>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {loadingAccounts && (
             <div className="col-span-full flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -358,9 +375,14 @@ export default function AccountsPage() {
                     {account?.page_tasks?.length ? (
                       <p>Tasks: {account.page_tasks.join(", ")}</p>
                     ) : null}
-                    {platform !== "youtube" && account?.page_id && !account.has_page_access_token && (
+                    {META_PLATFORMS.includes(platform as MetaPlatform) && account?.page_id && !account.has_page_access_token && (
                       <p className="font-medium text-amber-700 dark:text-amber-300">
                         추가 Meta 권한 설정이 필요합니다. 현재는 Page 목록 조회만 가능합니다.
+                      </p>
+                    )}
+                    {platform === "tiktok" && (
+                      <p className="font-medium text-amber-700 dark:text-amber-300">
+                        현재 TikTok은 mock 업로드 모드입니다. 실제 TikTok에는 게시되지 않습니다.
                       </p>
                     )}
                     {account?.instagram_business_account_id && (
