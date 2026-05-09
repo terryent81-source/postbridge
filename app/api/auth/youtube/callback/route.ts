@@ -18,6 +18,7 @@ type YouTubeTokenResponse = {
   access_token?: string
   refresh_token?: string
   expires_in?: number
+  token_type?: string
   scope?: string
   error?: string
   error_description?: string
@@ -137,6 +138,7 @@ async function exchangeCodeForToken(code: string, origin: string) {
     access_token: payload.access_token,
     refresh_token: payload.refresh_token ?? null,
     expires_in: payload.expires_in,
+    token_type: payload.token_type,
     scope: payload.scope,
   }
 }

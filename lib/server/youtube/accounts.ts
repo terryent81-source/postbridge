@@ -3,6 +3,7 @@ import "server-only"
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js"
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role"
 import { sanitizeSensitiveText } from "@/lib/server/meta/accounts"
+import { getYouTubeOAuthConfig } from "@/lib/server/youtube/config"
 
 export type YouTubeChannel = {
   id: string
@@ -16,6 +17,7 @@ export type YouTubeTokenSet = {
   access_token: string
   refresh_token?: string | null
   expires_in?: number
+  token_type?: string
   scope?: string
 }
 
@@ -24,6 +26,7 @@ type SocialAccountSecretRpcRow = {
   refresh_token?: string | null
   scopes?: string[] | null
   provider_account_id?: string | null
+  raw_provider_payload?: unknown
 }
 
 export type YouTubeAccountRow = {
@@ -132,20 +135,23 @@ export async function upsertYouTubeConnection({
   const tokenExpiresAt = tokens.expires_in
     ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     : null
-  const scopes = tokens.scope?.split(/\s+/).filter(Boolean) ?? []
 
   const account = await upsertYouTubeAccount(supabase, {
     userId,
     channel,
     tokenExpiresAt,
   })
+  const existingSecret = await getYouTubeSecret(supabase, account.id)
+  const refreshToken = tokens.refresh_token ?? existingSecret?.refresh_token ?? null
+  const scopes = tokens.scope?.split(/\s+/).filter(Boolean) ?? existingSecret?.scopes ?? []
 
   await upsertSecret(supabase, {
     socialAccountId: account.id,
     accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token ?? null,
+    refreshToken,
     scopes,
     providerAccountId: channel.id,
+    rawProviderPayload: buildTokenRawPayload(tokens, tokenExpiresAt),
   })
 
   return account
@@ -181,15 +187,11 @@ export async function refreshYouTubeChannel(userId: string) {
     )
   }
 
-  const secret = await getYouTubeSecret(supabase, account.id)
-
-  if (!secret?.access_token) {
-    throw new YouTubeAccountError(
-      "YOUTUBE_TOKEN_NOT_FOUND",
-      "youtube_secret_select",
-      "YouTube access token was not found.",
-    )
-  }
+  const secret = await ensureValidYouTubeUploadSecret({
+    supabase,
+    account,
+    secret: await getYouTubeSecret(supabase, account.id),
+  })
 
   const channel = await fetchYouTubeChannel(secret.access_token)
 
@@ -266,6 +268,78 @@ export async function updateYouTubeShortsSettings({
   return data as YouTubeAccountRow
 }
 
+export async function ensureValidYouTubeUploadSecret({
+  supabase,
+  account,
+  secret,
+}: {
+  supabase: SupabaseClient
+  account: {
+    id: string
+    user_id: string
+    token_expires_at: string | null
+    page_id?: string | null
+  }
+  secret: SocialAccountSecretRpcRow | null
+}) {
+  if (secret?.access_token && !isAccessTokenExpired(account.token_expires_at)) {
+    return {
+      social_account_id: account.id,
+      access_token: secret.access_token,
+      refresh_token: secret.refresh_token ?? null,
+      scopes: secret.scopes ?? [],
+      provider_account_id: secret.provider_account_id ?? account.page_id ?? null,
+    }
+  }
+
+  if (!secret?.refresh_token) {
+    throw new YouTubeAccountError(
+      "YOUTUBE_RECONNECT_REQUIRED",
+      "youtube_token_refresh",
+      "YouTube 재연결이 필요합니다. 업로드 권한 토큰이 없습니다.",
+    )
+  }
+
+  const refreshedToken = await refreshYouTubeAccessToken(secret.refresh_token)
+  const tokenExpiresAt = refreshedToken.expires_in
+    ? new Date(Date.now() + refreshedToken.expires_in * 1000).toISOString()
+    : null
+  const scopes =
+    refreshedToken.scope?.split(/\s+/).filter(Boolean) ?? secret.scopes ?? []
+  const refreshToken = refreshedToken.refresh_token ?? secret.refresh_token
+  const providerAccountId = secret.provider_account_id ?? account.page_id ?? null
+
+  const { error: accountError } = await supabase
+    .from("social_accounts")
+    .update({
+      status: "connected",
+      token_expires_at: tokenExpiresAt,
+    })
+    .eq("id", account.id)
+    .eq("user_id", account.user_id)
+
+  if (accountError) {
+    throwYouTubeSupabaseError("youtube_token_expiry_update", accountError)
+  }
+
+  await upsertSecret(supabase, {
+    socialAccountId: account.id,
+    accessToken: refreshedToken.access_token,
+    refreshToken,
+    scopes,
+    providerAccountId,
+    rawProviderPayload: buildTokenRawPayload(refreshedToken, tokenExpiresAt),
+  })
+
+  return {
+    social_account_id: account.id,
+    access_token: refreshedToken.access_token,
+    refresh_token: refreshToken,
+    scopes,
+    provider_account_id: providerAccountId,
+  }
+}
+
 async function upsertYouTubeAccount(
   supabase: SupabaseClient,
   input: {
@@ -308,7 +382,8 @@ async function upsertSecret(
     accessToken: string
     refreshToken: string | null
     scopes: string[]
-    providerAccountId: string
+    providerAccountId: string | null
+    rawProviderPayload?: Record<string, unknown> | null
   },
 ) {
   const { error } = await supabase.rpc("upsert_social_account_secret", {
@@ -317,7 +392,7 @@ async function upsertSecret(
     p_refresh_token: input.refreshToken,
     p_scopes: input.scopes,
     p_provider_account_id: input.providerAccountId,
-    p_raw_provider_payload: null,
+    p_raw_provider_payload: input.rawProviderPayload ?? null,
   })
 
   if (error) {
@@ -340,6 +415,56 @@ async function getYouTubeSecret(
   }
 
   return (data as SocialAccountSecretRpcRow | null) ?? null
+}
+
+async function refreshYouTubeAccessToken(refreshToken: string) {
+  const config = getYouTubeOAuthConfig()
+  const body = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    refresh_token: refreshToken,
+    grant_type: "refresh_token",
+  })
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  })
+  const payload = (await response.json().catch(() => ({}))) as YouTubeTokenSet & {
+    error?: string
+    error_description?: string
+  }
+
+  if (!response.ok || !payload.access_token) {
+    throw new YouTubeAccountError(
+      "YOUTUBE_AUTH_TOKEN_INVALID",
+      "youtube_token_refresh",
+      payload.error_description ?? payload.error ?? "YouTube token refresh failed",
+    )
+  }
+
+  return payload
+}
+
+function isAccessTokenExpired(expiresAt: string | null) {
+  if (!expiresAt) {
+    return false
+  }
+
+  return new Date(expiresAt).getTime() <= Date.now() + 60 * 1000
+}
+
+function buildTokenRawPayload(
+  tokens: YouTubeTokenSet,
+  expiresAt: string | null,
+) {
+  return {
+    token_type: tokens.token_type ?? "Bearer",
+    expires_at: expiresAt,
+    scope: tokens.scope ?? null,
+  }
 }
 
 function throwYouTubeSupabaseError(step: string, error: PostgrestError): never {

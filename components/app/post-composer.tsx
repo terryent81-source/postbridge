@@ -274,7 +274,7 @@ export function PostComposer({
         throw new Error(
           publishResult.results
             .filter((result) => result.status === "failed")
-            .map((result) => `${result.platform}: ${result.errorMessage}`)
+            .map((result) => `${result.platform}: ${formatUploadErrorMessage(result.errorMessage)}`)
             .join("; ") || "?낅줈?쒖뿉 ?ㅽ뙣?덉뒿?덈떎.",
         )
       }
@@ -327,6 +327,17 @@ export function PostComposer({
       .map((platform) => platform.trim())
 
     return platforms.filter((platform) => failed.includes(platform))
+  }
+
+  function formatUploadErrorMessage(message: string | null | undefined) {
+    if (
+      message === "YOUTUBE_RECONNECT_REQUIRED" ||
+      message === "YOUTUBE_AUTH_TOKEN_INVALID"
+    ) {
+      return "YouTube 연결을 다시 해주세요. 업로드 권한 토큰이 만료되었거나 없습니다."
+    }
+
+    return message ?? "업로드에 실패했습니다."
   }
 
   async function stageImmediateUploadMediaForCleanup(

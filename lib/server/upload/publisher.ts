@@ -9,6 +9,10 @@ import {
   uploadToYouTube,
   uploadUnsupportedPlatform,
 } from "@/lib/server/upload/platform-uploaders"
+import {
+  YouTubeAccountError,
+  ensureValidYouTubeUploadSecret,
+} from "@/lib/server/youtube/accounts"
 import type {
   MediaAssetForUpload,
   PlatformUploadContext,
@@ -157,7 +161,15 @@ async function uploadRealPlatform(
 ) {
   try {
     const account = await getSocialAccount(supabase, post.user_id, platform)
-    const secret = account ? await getSocialAccountSecret(supabase, account.id) : null
+    let secret = account ? await getSocialAccountSecret(supabase, account.id) : null
+
+    if (platform === "youtube" && account) {
+      secret = await ensureValidYouTubeUploadSecret({
+        supabase,
+        account,
+        secret,
+      })
+    }
     const context: PlatformUploadContext = {
       supabase,
       post,
@@ -215,7 +227,11 @@ async function uploadRealPlatform(
       uploadMode,
       status: "failed" as const,
       errorMessage:
-        error instanceof Error ? error.message : "Platform upload failed",
+        error instanceof YouTubeAccountError
+          ? error.code
+          : error instanceof Error
+            ? error.message
+            : "Platform upload failed",
     }
   }
 }

@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getMetaGraphApiVersion } from "@/lib/server/upload/mode"
+import { sanitizeSensitiveText } from "@/lib/server/meta/accounts"
 import type {
   MediaAssetForUpload,
   PlatformUploadContext,
@@ -119,7 +120,7 @@ export async function uploadToYouTube(
   context: PlatformUploadContext,
 ): Promise<PlatformUploadResult> {
   if (!context.secret?.access_token) {
-    return fail(context, "YouTube access token is missing")
+    return fail(context, "YOUTUBE_RECONNECT_REQUIRED")
   }
 
   const media = context.mediaAssets.find((asset) => asset.media_type === "video")
@@ -170,7 +171,12 @@ export async function uploadToYouTube(
   }
 
   if (!response.ok) {
-    return fail(context, payload.error?.message ?? "YouTube upload failed")
+    return fail(
+      context,
+      isYouTubeAuthError(response.status, payload.error?.message)
+        ? "YOUTUBE_AUTH_TOKEN_INVALID"
+        : sanitizeSensitiveText(payload.error?.message ?? "YouTube upload failed"),
+    )
   }
 
   return {
@@ -183,6 +189,15 @@ export async function uploadToYouTube(
       },
     },
   }
+}
+
+function isYouTubeAuthError(status: number, message: string | undefined) {
+  return (
+    status === 401 ||
+    /invalid authentication credentials|oauth 2 access token|auth/i.test(
+      message ?? "",
+    )
+  )
 }
 
 export async function uploadUnsupportedPlatform(
