@@ -69,6 +69,7 @@ const POST_MEDIA_BUCKET = "post-media"
 const SIGNED_URL_EXPIRES_IN_SECONDS = 60 * 60
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024
 const VIDEO_MAX_BYTES = VIDEO_OPTIMIZATION_TARGET_BYTES
+const FAILED_SELECTION_DEDUPE_WINDOW_MS = 10 * 60 * 1000
 
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 const ALLOWED_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"])
@@ -351,6 +352,63 @@ export async function recordFailedVideoOptimizationMediaAssets({
   return rows
 }
 
+export async function recordFailedVideoOptimizationSelectionMediaAssets(
+  files: File[],
+): Promise<SupabaseMediaAssetRow[]> {
+  if (files.length === 0) {
+    return []
+  }
+
+  const supabase = createBrowserSupabaseClient()
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    throw new Error("濡쒓렇?몄씠 ?꾩슂?⑸땲??")
+  }
+
+  const rows: SupabaseMediaAssetRow[] = []
+
+  for (const file of files) {
+    const mediaType = validatePostMediaFile(file)
+
+    if (mediaType !== "video" || file.size <= VIDEO_MAX_BYTES) {
+      continue
+    }
+
+    console.warn("[media-upload] Supabase Storage upload skipped before upload", {
+      fileName: file.name,
+      fileSize: file.size,
+    })
+
+    const existingRow = await findRecentFailedOptimizationMediaAsset({
+      supabase,
+      userId: user.id,
+      file,
+    })
+
+    if (existingRow) {
+      rows.push(existingRow)
+      continue
+    }
+
+    rows.push(
+      await insertFailedOptimizationMediaAsset({
+        supabase,
+        userId: user.id,
+        postId: null,
+        upload: buildFailedOptimizationUpload(file),
+        mediaType,
+        deleteAfter: null,
+      }),
+    )
+  }
+
+  return rows
+}
+
 async function insertFailedOptimizationMediaAsset({
   supabase,
   userId,
@@ -361,12 +419,12 @@ async function insertFailedOptimizationMediaAsset({
 }: {
   supabase: ReturnType<typeof createBrowserSupabaseClient>
   userId: string
-  postId: string
+  postId: string | null
   upload: PreparedMediaUpload
   mediaType: SupabaseMediaType
   deleteAfter: Date | null
 }) {
-  const failedStoragePath = `${userId}/${postId}/failed/${buildStorageFileName(upload.originalFile.name)}`
+  const failedStoragePath = `${userId}/${postId ?? "unattached"}/failed/${buildStorageFileName(upload.originalFile.name)}`
   const { data, error } = await supabase
     .from("media_assets")
     .insert({
@@ -400,6 +458,50 @@ async function insertFailedOptimizationMediaAsset({
   }
 
   return data
+}
+
+async function findRecentFailedOptimizationMediaAsset({
+  supabase,
+  userId,
+  file,
+}: {
+  supabase: ReturnType<typeof createBrowserSupabaseClient>
+  userId: string
+  file: File
+}) {
+  const cutoff = new Date(Date.now() - FAILED_SELECTION_DEDUPE_WINDOW_MS).toISOString()
+  const { data, error } = await supabase
+    .from("media_assets")
+    .select("*")
+    .eq("user_id", userId)
+    .is("post_id", null)
+    .eq("file_name", file.name)
+    .eq("file_size", file.size)
+    .eq("mime_type", file.type)
+    .eq("optimization_status", "failed")
+    .eq("optimization_error", VIDEO_OPTIMIZER_UNAVAILABLE_ERROR)
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false })
+    .limit(1)
+
+  if (error) {
+    throw error
+  }
+
+  return ((data ?? [])[0] as SupabaseMediaAssetRow | undefined) ?? null
+}
+
+function buildFailedOptimizationUpload(file: File): PreparedMediaUpload {
+  return {
+    file,
+    originalFile: file,
+    originalSize: file.size,
+    optimizedSize: null,
+    optimizationStatus: "failed",
+    optimizationError: VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
+    optimizationAttempts: 1,
+    optimizationSettings: null,
+  }
 }
 
 function formatOptimizationUploadError(error: string | null | undefined) {

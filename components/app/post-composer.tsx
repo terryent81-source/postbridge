@@ -50,6 +50,7 @@ import {
 } from "@/lib/db"
 import {
   markMyPostMediaPendingDelete,
+  recordFailedVideoOptimizationSelectionMediaAssets,
   recordFailedVideoOptimizationMediaAssets,
   uploadPostMediaAssets,
   validatePostMediaFile,
@@ -107,6 +108,7 @@ type MediaItem = {
   file: File
   optimizationStatus?: VideoOptimizationStatus
   optimizationMessage?: string
+  optimizationFailureRecorded?: boolean
 }
 
 export function PostComposer({
@@ -152,7 +154,7 @@ export function PostComposer({
     })
   }
 
-  const handleFiles = (files: FileList | null) => {
+  const handleFiles = async (files: FileList | null) => {
     if (!files) return
     const remainingSlots = 10 - media.length
 
@@ -195,7 +197,38 @@ export function PostComposer({
       }
     })
 
-    setMedia((m) => [...m, ...items])
+    const unavailableOptimizerItems = items.filter(
+      (item) =>
+        item.optimizationStatus === "failed" &&
+        isVideoOptimizationRequired(item.file) &&
+        !isVideoOptimizerAvailable(),
+    )
+    const recordedFailureKeys = new Set<string>()
+
+    if (unavailableOptimizerItems.length > 0) {
+      try {
+        const failedRows = await recordFailedVideoOptimizationSelectionMediaAssets(
+          unavailableOptimizerItems.map((item) => item.file),
+        )
+        failedRows.forEach((row) => {
+          recordedFailureKeys.add(buildMediaFailureKey(row.file_name, row.file_size, row.mime_type))
+        })
+      } catch (error) {
+        console.error("[media-upload] Failed to record video optimization failure", {
+          message: error instanceof Error ? error.message : "Unknown error",
+        })
+      }
+    }
+
+    setMedia((m) => [
+      ...m,
+      ...items.map((item) => ({
+        ...item,
+        optimizationFailureRecorded: recordedFailureKeys.has(
+          buildMediaFailureKey(item.name, item.size, item.type),
+        ),
+      })),
+    ])
     if (items.length > 0) toast.success(`${items.length}개 파일이 추가되었습니다.`)
     errors.forEach((message) => toast.error(message))
   }
@@ -409,6 +442,10 @@ export function PostComposer({
     return youtubeResult?.platformMetadata?.youtube?.youtubeUrl ?? null
   }
 
+  function buildMediaFailureKey(fileName: string, fileSize: number, mimeType: string) {
+    return `${fileName}:${fileSize}:${mimeType}`
+  }
+
   async function stageImmediateUploadMediaForCleanup(
     postId: string | undefined,
     cleanupDelayMs: number,
@@ -465,11 +502,29 @@ export function PostComposer({
       )
 
       if (unavailableOptimizerFiles.length > 0) {
-        await recordFailedVideoOptimizationMediaAssets({
-          postId,
-          files: unavailableOptimizerFiles,
-          deleteAfter: cleanup?.deleteAfter,
-        })
+        const alreadyRecordedFailureKeys = new Set(
+          media
+            .filter((item) => item.optimizationFailureRecorded)
+            .map((item) => buildMediaFailureKey(item.name, item.size, item.type)),
+        )
+        const filesToRecord = unavailableOptimizerFiles.filter(
+          (file) =>
+            !alreadyRecordedFailureKeys.has(
+              buildMediaFailureKey(
+                file.originalFile.name,
+                file.originalSize,
+                file.originalFile.type,
+              ),
+            ),
+        )
+
+        if (filesToRecord.length > 0) {
+          await recordFailedVideoOptimizationMediaAssets({
+            postId,
+            files: filesToRecord,
+            deleteAfter: cleanup?.deleteAfter,
+          })
+        }
         toast.error(VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE, { id: toastId })
         throw new Error(VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE)
       }
