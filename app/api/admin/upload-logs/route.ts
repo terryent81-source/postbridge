@@ -11,6 +11,7 @@ type UploadLogRow = {
   user_id: string
   platform: string
   status: string
+  platform_metadata?: Record<string, unknown>
   error_message: string | null
   attempted_at: string
   completed_at: string | null

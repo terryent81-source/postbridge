@@ -22,7 +22,7 @@ export type SupabaseUploadLogWithPost = {
 }
 
 const POSTS_SELECT =
-  "id,user_id,title,content,platforms,status,scheduled_at,published_at,fail_reason,created_at,updated_at"
+  "id,user_id,title,content,platforms,platform_settings,status,scheduled_at,published_at,fail_reason,created_at,updated_at"
 
 export const SUPABASE_UPLOAD_LOGS_CHANGED_EVENT =
   "postbridge:supabase-upload-logs-changed"

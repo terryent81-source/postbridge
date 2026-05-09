@@ -6,6 +6,7 @@ import type {
   PlatformUploadContext,
   PlatformUploadResult,
 } from "@/lib/server/upload/types"
+import { getYouTubePrivacyStatusFromPost } from "@/lib/youtube/privacy"
 
 const SIGNED_MEDIA_URL_EXPIRES_IN_SECONDS = 24 * 60 * 60
 
@@ -176,6 +177,11 @@ export async function uploadToYouTube(
     platform: context.platform,
     status: "success",
     platformPostId: payload.id ?? null,
+    platformMetadata: {
+      youtube: {
+        privacyStatus: getYouTubePrivacyStatusFromPost(context.post),
+      },
+    },
   }
 }
 
@@ -259,7 +265,7 @@ function buildYouTubeVideoMetadata(context: PlatformUploadContext) {
       categoryId: "22",
     },
     status: {
-      privacyStatus: "private",
+      privacyStatus: getYouTubePrivacyStatusFromPost(context.post),
       selfDeclaredMadeForKids: false,
     },
   }
@@ -305,5 +311,13 @@ function fail(context: PlatformUploadContext, message: string): PlatformUploadRe
     platform: context.platform,
     status: "failed",
     errorMessage: message,
+    platformMetadata:
+      context.platform === "youtube"
+        ? {
+            youtube: {
+              privacyStatus: getYouTubePrivacyStatusFromPost(context.post),
+            },
+          }
+        : null,
   }
 }

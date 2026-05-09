@@ -17,6 +17,7 @@ import type {
   SocialAccountForUpload,
   SocialAccountSecretForUpload,
 } from "@/lib/server/upload/types"
+import { getYouTubePrivacyStatusFromPost } from "@/lib/youtube/privacy"
 
 export async function publishPostWithUploader(
   supabase: SupabaseClient,
@@ -45,6 +46,7 @@ export async function publishPostWithUploader(
         platform,
         status: "success",
         platformPostId: `mock_${platform}_${post.id}`,
+        platformMetadata: getUploadLogPlatformMetadata(post, platform),
       })
       continue
     }
@@ -106,6 +108,7 @@ export async function failPostWithUploadLogs(
     platform,
     status: "failed",
     errorMessage: reason,
+    platformMetadata: getUploadLogPlatformMetadata(post, platform),
   }))
 
   await insertUploadLogs(supabase, post, results, attemptedAt, uploadMode)
@@ -282,6 +285,8 @@ async function insertUploadLogs(
       platform: result.platform,
       status: result.status,
       upload_mode: uploadMode,
+      platform_metadata:
+        result.platformMetadata ?? getUploadLogPlatformMetadata(post, result.platform),
       platform_post_id: result.platformPostId ?? null,
       error_message: result.errorMessage ?? null,
       attempted_at: attemptedAt.toISOString(),
@@ -325,4 +330,19 @@ function hasDeletedMedia(mediaAssets: MediaAssetForUpload[]) {
 
 function isDeletedMedia(media: MediaAssetForUpload) {
   return media.status === "deleted" || Boolean(media.deleted_at)
+}
+
+function getUploadLogPlatformMetadata(
+  post: PublishablePost,
+  platform: Platform,
+) {
+  if (platform !== "youtube") {
+    return {}
+  }
+
+  return {
+    youtube: {
+      privacyStatus: getYouTubePrivacyStatusFromPost(post),
+    },
+  }
 }

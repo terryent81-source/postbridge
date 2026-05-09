@@ -3,6 +3,7 @@ import "server-only"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Platform } from "@/lib/db"
 import type { UploadMode } from "@/lib/server/upload/mode"
+import type { YouTubePrivacyStatus } from "@/lib/youtube/privacy"
 
 export type PublishablePost = {
   id: string
@@ -10,6 +11,7 @@ export type PublishablePost = {
   title: string
   content: string
   platforms: Platform[]
+  platform_settings?: Record<string, unknown>
 }
 
 export type MediaAssetForUpload = {
@@ -60,4 +62,9 @@ export type PlatformUploadResult = {
   status: "success" | "failed"
   platformPostId?: string | null
   errorMessage?: string | null
+  platformMetadata?: {
+    youtube?: {
+      privacyStatus?: YouTubePrivacyStatus
+    }
+  } | null
 }

@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -70,6 +77,10 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import {
+  YOUTUBE_PRIVACY_OPTIONS,
+  type YouTubePrivacyStatus,
+} from "@/lib/youtube/privacy"
 
 const HASHTAG_SETS = [
   { name: "브랜드 기본", tags: "#postbridge #브랜드 #콘텐츠마케팅" },
@@ -86,7 +97,11 @@ type MediaItem = {
   file: File
 }
 
-export function PostComposer() {
+export function PostComposer({
+  youtubeDefaultPrivacyStatus = "private",
+}: {
+  youtubeDefaultPrivacyStatus?: YouTubePrivacyStatus
+}) {
   const [title, setTitle] = useState("")
   const [body, setBody] = useState(
     "오늘 새 메뉴가 출시되었습니다 ☕️\n9월 한정으로 만나보실 수 있어요.\n\n많은 관심 부탁드립니다!",
@@ -95,6 +110,8 @@ export function PostComposer() {
   const [selected, setSelected] = useState<Set<Platform>>(
     new Set(["instagram", "facebook"]),
   )
+  const [youtubePrivacyStatus, setYouTubePrivacyStatus] =
+    useState<YouTubePrivacyStatus>(youtubeDefaultPrivacyStatus)
   const [media, setMedia] = useState<MediaItem[]>([])
   const [isPosting, setIsPosting] = useState(false)
   const [isSavingDraft, setIsSavingDraft] = useState(false)
@@ -186,6 +203,9 @@ export function PostComposer() {
       "제목 없는 게시물",
     content: [body.trim(), hashtags.trim()].filter(Boolean).join("\n\n"),
     platforms: Array.from(selected),
+    platform_settings: selected.has("youtube")
+      ? { youtube: { privacyStatus: youtubePrivacyStatus } }
+      : {},
     media_urls: media.map((item) => item.url),
   })
 
@@ -198,6 +218,7 @@ export function PostComposer() {
         title: input.title,
         content: input.content,
         platforms: input.platforms,
+        platformSettings: input.platform_settings,
         status: "draft",
       })
       await uploadSelectedMedia(supabasePost.id)
@@ -238,6 +259,7 @@ export function PostComposer() {
         title: input.title,
         content: input.content,
         platforms: input.platforms,
+        platformSettings: input.platform_settings,
         status: "draft",
       })
       await uploadSelectedMedia(supabasePost.id)
@@ -337,6 +359,7 @@ export function PostComposer() {
       title: input.title,
       content: input.content,
       platforms: input.platforms,
+      platformSettings: input.platform_settings,
       status: "scheduled",
       scheduledAt,
     })
@@ -571,6 +594,35 @@ export function PostComposer() {
                     })}
                   </FieldGroup>
                 </FieldSet>
+
+                {selected.has("youtube") && (
+                  <FieldSet>
+                    <div className="flex items-center justify-between gap-3">
+                      <FieldLegend>YouTube 공개 설정</FieldLegend>
+                      <PlatformIcon platform="youtube" size="sm" />
+                    </div>
+                    <FieldDescription>
+                      테스트 중에는 비공개 업로드를 권장합니다.
+                    </FieldDescription>
+                    <Select
+                      value={youtubePrivacyStatus}
+                      onValueChange={(value) =>
+                        setYouTubePrivacyStatus(value as YouTubePrivacyStatus)
+                      }
+                    >
+                      <SelectTrigger className="mt-1 w-full sm:w-56">
+                        <SelectValue placeholder="공개 설정 선택" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {YOUTUBE_PRIVACY_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldSet>
+                )}
               </FieldGroup>
 
               {/* Action bar */}

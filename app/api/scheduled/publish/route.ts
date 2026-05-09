@@ -22,6 +22,7 @@ type ScheduledPost = {
   title: string
   content: string
   platforms: Platform[]
+  platform_settings?: Record<string, unknown>
   status: "scheduled"
   scheduled_at: string
 }
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
   const now = new Date()
   const { data, error } = await supabase
     .from("posts")
-    .select("id, user_id, title, content, platforms, status, scheduled_at")
+    .select("id, user_id, title, content, platforms, platform_settings, status, scheduled_at")
     .eq("status", "scheduled")
     .not("scheduled_at", "is", null)
     .lte("scheduled_at", now.toISOString())

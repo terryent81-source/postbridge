@@ -1,6 +1,6 @@
 "use client"
 
-import type { Platform, Post, PostStatus } from "@/lib/db"
+import type { JsonObject, Platform, Post, PostStatus } from "@/lib/db"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import {
   listAttachedMediaAssetsForPosts,
@@ -13,6 +13,7 @@ export type SupabasePostRow = {
   title: string
   content: string
   platforms: Platform[]
+  platform_settings: JsonObject
   status: PostStatus
   scheduled_at: string | null
   published_at: string | null
@@ -25,6 +26,7 @@ type CreateSupabasePostInput = {
   title: string
   content: string
   platforms: Platform[]
+  platformSettings?: JsonObject
   status: Extract<PostStatus, "draft" | "scheduled">
   scheduledAt?: string | null
 }
@@ -43,7 +45,7 @@ export type SupabasePostWithMedia = {
 }
 
 const POSTS_SELECT =
-  "id,user_id,title,content,platforms,status,scheduled_at,published_at,fail_reason,created_at,updated_at"
+  "id,user_id,title,content,platforms,platform_settings,status,scheduled_at,published_at,fail_reason,created_at,updated_at"
 
 export async function listMySupabasePosts({
   status,
@@ -140,6 +142,7 @@ export async function createSupabasePost({
   title,
   content,
   platforms,
+  platformSettings = {},
   status,
   scheduledAt = null,
 }: CreateSupabasePostInput) {
@@ -178,6 +181,7 @@ export async function createSupabasePost({
       title: title.trim(),
       content,
       platforms,
+      platform_settings: platformSettings,
       status,
       scheduled_at: status === "scheduled" ? scheduledAt : null,
     })
@@ -198,6 +202,7 @@ function mapSupabasePostToPost(row: SupabasePostRow): Post {
     title: row.title,
     content: row.content,
     platforms: row.platforms,
+    platform_settings: row.platform_settings,
     media_urls: [],
     status: row.status,
     scheduled_at: row.scheduled_at,

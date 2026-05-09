@@ -30,6 +30,7 @@ export type AccountStatus =
 export type UploadStatus = "pending" | "success" | "failed"
 
 export type UploadMode = "mock" | "real"
+export type JsonObject = Record<string, unknown>
 
 export type SubscriptionTier = "free" | "starter" | "pro" | "business"
 
@@ -94,6 +95,7 @@ export interface Post {
   title: string
   content: string
   platforms: Platform[]
+  platform_settings?: JsonObject
   media_urls: string[]
   status: PostStatus
   scheduled_at: ISODateString | null
@@ -142,6 +144,7 @@ export interface UploadLog {
   platform: Platform
   status: UploadStatus
   upload_mode?: UploadMode
+  platform_metadata?: JsonObject
   platform_post_id?: string | null
   error_message: string | null
   attempted_at: ISODateString
@@ -212,6 +215,7 @@ export interface CreatePostInput {
   title: string
   content: string
   platforms: Platform[]
+  platform_settings?: JsonObject
   media_urls?: string[]
   scheduled_at?: ISODateString | null
 }

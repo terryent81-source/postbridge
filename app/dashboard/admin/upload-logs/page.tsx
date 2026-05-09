@@ -27,6 +27,7 @@ type AdminUploadLogRow = {
     user_id: string
     platform: Platform
     status: "pending" | "success" | "failed"
+    platform_metadata?: Record<string, unknown>
     error_message: string | null
     attempted_at: string
     completed_at: string | null
@@ -117,6 +118,7 @@ export default function AdminUploadLogsPage() {
                       <TableHead>Post</TableHead>
                       <TableHead>Platform</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Metadata</TableHead>
                       <TableHead>Error</TableHead>
                       <TableHead>Attempted</TableHead>
                     </TableRow>
@@ -137,6 +139,9 @@ export default function AdminUploadLogsPage() {
                         </TableCell>
                         <TableCell>
                           <UploadStatusBadge status={row.log.status} />
+                        </TableCell>
+                        <TableCell className="max-w-[220px] text-sm text-muted-foreground">
+                          {formatPlatformMetadata(row.log.platform_metadata)}
                         </TableCell>
                         <TableCell className="max-w-[320px]">
                           {row.log.error_message ? (
@@ -198,6 +203,21 @@ function UploadStatusBadge({ status }: { status: AdminUploadLogRow["log"]["statu
 
 function countMissingMedia(rows: AdminUploadLogRow[]) {
   return rows.filter((row) => row.log.error_message === "missing_media_file").length
+}
+
+function formatPlatformMetadata(metadata: Record<string, unknown> | undefined) {
+  const youtube = metadata?.youtube
+
+  if (
+    youtube &&
+    typeof youtube === "object" &&
+    "privacyStatus" in youtube &&
+    typeof youtube.privacyStatus === "string"
+  ) {
+    return `YouTube: ${youtube.privacyStatus}`
+  }
+
+  return "-"
 }
 
 function formatDate(value: string) {

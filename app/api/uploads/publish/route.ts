@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   const supabase = createSupabaseServiceRoleClient()
   const { data, error } = await supabase
     .from("posts")
-    .select("id, user_id, title, content, platforms, status")
+    .select("id, user_id, title, content, platforms, platform_settings, status")
     .eq("id", body.postId)
     .eq("user_id", user.id)
     .maybeSingle()
