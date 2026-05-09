@@ -11,6 +11,13 @@ export type PublishNowResult = {
     uploadMode?: "mock" | "real"
     status: "success" | "failed"
     platformPostId?: string | null
+    platformMetadata?: {
+      youtube?: {
+        privacyStatus?: string
+        youtubeUrl?: string
+        youtubeStudioUrl?: string
+      }
+    } | null
     errorMessage?: string | null
   }>
 }

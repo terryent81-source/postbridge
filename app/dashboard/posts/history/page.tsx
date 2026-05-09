@@ -34,7 +34,7 @@ import {
 } from "@/lib/supabase/upload-logs"
 import { MEDIA_EXPIRED_MESSAGE } from "@/lib/supabase/media-assets"
 import { hasDeletedMediaAssets } from "@/components/app/post-media-summary"
-import { Download, RotateCw, Search, FileX2 } from "lucide-react"
+import { Download, ExternalLink, RotateCw, Search, FileX2 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
@@ -229,7 +229,45 @@ export default function HistoryPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          {p.status === "failed" ? (
+                          {p.youtubeUrl ? (
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                asChild
+                                size="sm"
+                                variant="outline"
+                                className="press-effect gap-1.5"
+                              >
+                                <a
+                                  href={p.youtubeUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  YouTube에서 보기
+                                </a>
+                              </Button>
+                              {p.youtubeStudioUrl && (
+                                <Button
+                                  asChild
+                                  size="sm"
+                                  variant="ghost"
+                                  className="press-effect gap-1.5"
+                                >
+                                  <a
+                                    href={p.youtubeStudioUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    Studio
+                                  </a>
+                                </Button>
+                              )}
+                            </div>
+                          ) : p.platform === "youtube" &&
+                            p.status === "success" &&
+                            p.uploadMode === "mock" ? (
+                            <span className="text-xs text-muted-foreground">Mock 완료</span>
+                          ) : p.status === "failed" ? (
                             <Button
                               size="sm"
                               variant="outline"

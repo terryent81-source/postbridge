@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table"
 import { PlatformIcon } from "@/components/platform-icon"
 import type { Platform } from "@/lib/db"
-import { ArrowLeft, FileX2, RefreshCw } from "lucide-react"
+import { ArrowLeft, ExternalLink, FileX2, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 
 type AdminUploadLogRow = {
@@ -27,6 +27,8 @@ type AdminUploadLogRow = {
     user_id: string
     platform: Platform
     status: "pending" | "success" | "failed"
+    upload_mode?: "mock" | "real"
+    platform_post_id?: string | null
     platform_metadata?: Record<string, unknown>
     error_message: string | null
     attempted_at: string
@@ -119,6 +121,7 @@ export default function AdminUploadLogsPage() {
                       <TableHead>Platform</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Metadata</TableHead>
+                      <TableHead>Link</TableHead>
                       <TableHead>Error</TableHead>
                       <TableHead>Attempted</TableHead>
                     </TableRow>
@@ -142,6 +145,9 @@ export default function AdminUploadLogsPage() {
                         </TableCell>
                         <TableCell className="max-w-[220px] text-sm text-muted-foreground">
                           {formatPlatformMetadata(row.log.platform_metadata)}
+                        </TableCell>
+                        <TableCell>
+                          <YouTubeLogLink log={row.log} />
                         </TableCell>
                         <TableCell className="max-w-[320px]">
                           {row.log.error_message ? (
@@ -218,6 +224,55 @@ function formatPlatformMetadata(metadata: Record<string, unknown> | undefined) {
   }
 
   return "-"
+}
+
+function getYouTubeLogUrl(log: AdminUploadLogRow["log"]) {
+  const youtube = log.platform_metadata?.youtube
+
+  if (
+    youtube &&
+    typeof youtube === "object" &&
+    "youtubeUrl" in youtube &&
+    typeof youtube.youtubeUrl === "string"
+  ) {
+    return youtube.youtubeUrl
+  }
+
+  if (
+    log.platform === "youtube" &&
+    log.status === "success" &&
+    log.upload_mode === "real" &&
+    log.platform_post_id
+  ) {
+    return `https://www.youtube.com/watch?v=${encodeURIComponent(log.platform_post_id)}`
+  }
+
+  return null
+}
+
+function YouTubeLogLink({ log }: { log: AdminUploadLogRow["log"] }) {
+  const youtubeUrl = getYouTubeLogUrl(log)
+
+  if (youtubeUrl) {
+    return (
+      <Button asChild size="sm" variant="outline" className="h-8 gap-1.5">
+        <a href={youtubeUrl} target="_blank" rel="noreferrer">
+          <ExternalLink className="h-3.5 w-3.5" />
+          YouTube에서 보기
+        </a>
+      </Button>
+    )
+  }
+
+  if (
+    log.platform === "youtube" &&
+    log.status === "success" &&
+    log.upload_mode === "mock"
+  ) {
+    return <span className="text-xs text-muted-foreground">Mock</span>
+  }
+
+  return <span className="text-sm text-muted-foreground">-</span>
 }
 
 function formatDate(value: string) {

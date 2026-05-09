@@ -34,6 +34,10 @@ export type UiUploadLog = {
   platform: Platform
   platforms: Platform[]
   status: UploadStatus
+  uploadMode?: UploadLog["upload_mode"]
+  platformPostId?: string
+  youtubeUrl?: string
+  youtubeStudioUrl?: string
   postStatus: PostStatus
   attemptedAt: string
   errorMessage?: string
@@ -73,8 +77,26 @@ export function mapUploadLogToUi(log: UploadLog, post?: Post | null): UiUploadLo
     platform: log.platform,
     platforms: post?.platforms ?? [log.platform],
     status: log.status,
+    uploadMode: log.upload_mode,
+    platformPostId: log.platform_post_id ?? undefined,
+    youtubeUrl: getYouTubeMetadataValue(log, "youtubeUrl"),
+    youtubeStudioUrl: getYouTubeMetadataValue(log, "youtubeStudioUrl"),
     postStatus: log.status === "success" ? "published" : log.status === "failed" ? "failed" : "scheduled",
     attemptedAt: formatDateTime(log.attempted_at) ?? log.attempted_at,
     errorMessage: log.error_message ?? undefined,
   }
+}
+
+function getYouTubeMetadataValue(
+  log: UploadLog,
+  key: "youtubeUrl" | "youtubeStudioUrl",
+) {
+  const youtube = log.platform_metadata?.youtube
+
+  if (!youtube || typeof youtube !== "object" || !(key in youtube)) {
+    return undefined
+  }
+
+  const value = (youtube as Record<string, unknown>)[key]
+  return typeof value === "string" ? value : undefined
 }

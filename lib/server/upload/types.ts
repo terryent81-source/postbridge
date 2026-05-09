@@ -66,6 +66,8 @@ export type PlatformUploadResult = {
   platformMetadata?: {
     youtube?: {
       privacyStatus?: YouTubePrivacyStatus
+      youtubeUrl?: string
+      youtubeStudioUrl?: string
     }
   } | null
 }

@@ -21,6 +21,7 @@ import type {
   SocialAccountForUpload,
   SocialAccountSecretForUpload,
 } from "@/lib/server/upload/types"
+import { getRealYouTubeUrls } from "@/lib/youtube/links"
 import { getYouTubePrivacyStatusFromPost } from "@/lib/youtube/privacy"
 
 export async function publishPostWithUploader(
@@ -314,7 +315,8 @@ async function insertUploadLogs(
       status: result.status,
       upload_mode: result.uploadMode ?? uploadMode,
       platform_metadata:
-        result.platformMetadata ?? getUploadLogPlatformMetadata(post, result.platform),
+        result.platformMetadata ??
+        getUploadLogPlatformMetadata(post, result.platform, result),
       platform_post_id: result.platformPostId ?? null,
       error_message: result.errorMessage ?? null,
       attempted_at: attemptedAt.toISOString(),
@@ -373,14 +375,28 @@ function isDeletedMedia(media: MediaAssetForUpload) {
 function getUploadLogPlatformMetadata(
   post: PublishablePost,
   platform: Platform,
+  result?: Pick<
+    PlatformUploadResult,
+    "status" | "uploadMode" | "platformPostId"
+  >,
 ) {
   if (platform !== "youtube") {
     return {}
   }
 
+  const urls = result
+    ? getRealYouTubeUrls({
+        platform,
+        status: result.status,
+        uploadMode: result.uploadMode,
+        platformPostId: result.platformPostId,
+      })
+    : null
+
   return {
     youtube: {
       privacyStatus: getYouTubePrivacyStatusFromPost(post),
+      ...(urls ?? {}),
     },
   }
 }

@@ -280,11 +280,18 @@ export function PostComposer({
       }
 
       const published = { platforms: input.platforms }
+      const youtubeResultUrl = getFirstYouTubeResultUrl(publishResult.results)
       toast.success(`${published.platforms.length}개 플랫폼에 업로드를 시작했습니다.`, {
         id,
         description: supabaseUsage
           ? "이번 주 무료 업로드 횟수가 1회 차감되었습니다."
           : "사용 횟수와 업로드 기록이 mock 데이터에 반영되었습니다.",
+        action: youtubeResultUrl
+          ? {
+              label: "YouTube에서 보기",
+              onClick: () => window.open(youtubeResultUrl, "_blank", "noopener,noreferrer"),
+            }
+          : undefined,
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : "업로드에 실패했습니다."
@@ -338,6 +345,29 @@ export function PostComposer({
     }
 
     return message ?? "업로드에 실패했습니다."
+  }
+
+  function getFirstYouTubeResultUrl(
+    results: Array<{
+      platform: string
+      uploadMode?: "mock" | "real"
+      status: "success" | "failed"
+      platformPostId?: string | null
+      platformMetadata?: {
+        youtube?: {
+          youtubeUrl?: string
+        }
+      } | null
+    }>,
+  ) {
+    const youtubeResult = results.find(
+      (result) =>
+        result.platform === "youtube" &&
+        result.uploadMode === "real" &&
+        result.status === "success",
+    )
+
+    return youtubeResult?.platformMetadata?.youtube?.youtubeUrl ?? null
   }
 
   async function stageImmediateUploadMediaForCleanup(

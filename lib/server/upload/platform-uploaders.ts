@@ -7,6 +7,7 @@ import type {
   PlatformUploadContext,
   PlatformUploadResult,
 } from "@/lib/server/upload/types"
+import { getYouTubeStudioUrl, getYouTubeVideoUrl } from "@/lib/youtube/links"
 import { getYouTubePrivacyStatusFromPost } from "@/lib/youtube/privacy"
 
 const SIGNED_MEDIA_URL_EXPIRES_IN_SECONDS = 24 * 60 * 60
@@ -186,6 +187,12 @@ export async function uploadToYouTube(
     platformMetadata: {
       youtube: {
         privacyStatus: getYouTubePrivacyStatusFromPost(context.post),
+        ...(payload.id
+          ? {
+              youtubeUrl: getYouTubeVideoUrl(payload.id),
+              youtubeStudioUrl: getYouTubeStudioUrl(payload.id),
+            }
+          : {}),
       },
     },
   }
