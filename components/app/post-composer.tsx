@@ -375,7 +375,11 @@ export function PostComposer({
   function formatComposerErrorMessage(error: unknown, fallback: string) {
     const message = error instanceof Error ? error.message : fallback
 
-    if (message === VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE) {
+    if (
+      message === VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE ||
+      message.includes("The object exceeded the maximum allowed size") ||
+      message.includes("object exceeded the maximum allowed size")
+    ) {
       return VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE
     }
 
@@ -499,7 +503,11 @@ export function PostComposer({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요."
-      if (message === VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE) {
+      if (
+        message === VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE ||
+        message.includes("The object exceeded the maximum allowed size") ||
+        message.includes("object exceeded the maximum allowed size")
+      ) {
         toast.error(VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE, { id: toastId })
       } else {
         toast.error("미디어 업로드에 실패했습니다", {
