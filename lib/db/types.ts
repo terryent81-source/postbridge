@@ -21,7 +21,11 @@ export type Platform = "instagram" | "facebook" | "youtube" | "tiktok" | "x"
 
 export type PostStatus = "draft" | "scheduled" | "published" | "failed"
 
-export type AccountStatus = "connected" | "needs_connection" | "expired"
+export type AccountStatus =
+  | "connected"
+  | "needs_connection"
+  | "expired"
+  | "token_missing"
 
 export type UploadStatus = "pending" | "success" | "failed"
 
@@ -44,7 +48,7 @@ export const STATUS_LABELS: Record<PostStatus, string> = {
   failed: "실패",
 }
 
-export const ACCOUNT_STATUS_LABELS: Record<AccountStatus, string> = {
+export const ACCOUNT_STATUS_LABELS: Partial<Record<AccountStatus, string>> = {
   connected: "연결됨",
   needs_connection: "연결 필요",
   expired: "권한 만료",
@@ -113,6 +117,9 @@ export interface SocialAccount {
   description: string | null
   page_id: string | null
   page_name: string | null
+  page_category?: string | null
+  page_tasks?: string[] | null
+  has_page_access_token?: boolean
   instagram_business_account_id: string | null
   access_token: string | null
   refresh_token: string | null

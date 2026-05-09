@@ -30,6 +30,7 @@ export type SocialAccountForUpload = {
   status: string
   page_id: string | null
   page_name?: string | null
+  has_page_access_token?: boolean | null
   instagram_business_account_id: string | null
   token_expires_at: string | null
 }

@@ -26,11 +26,14 @@ export type MetaSocialAccountRow = {
   id: string
   user_id: string
   platform: Platform
-  status: "connected" | "needs_connection" | "expired"
+  status: "connected" | "needs_connection" | "expired" | "token_missing"
   handle: string | null
   description: string | null
   page_id: string | null
   page_name: string | null
+  page_category: string | null
+  page_tasks: string[] | null
+  has_page_access_token: boolean
   instagram_business_account_id: string | null
   token_expires_at: string | null
   connected_at: string | null
@@ -292,7 +295,7 @@ export async function getMetaAccounts(userId: string) {
   const { data, error } = await supabase
     .from("social_accounts")
     .select(
-      "id, user_id, platform, status, handle, description, page_id, page_name, instagram_business_account_id, token_expires_at, connected_at, created_at, updated_at",
+      "id, user_id, platform, status, handle, description, page_id, page_name, page_category, page_tasks, has_page_access_token, instagram_business_account_id, token_expires_at, connected_at, created_at, updated_at",
     )
     .eq("user_id", userId)
     .in("platform", ["facebook", "instagram"])
@@ -390,10 +393,6 @@ export async function saveSelectedMetaPage({
   page: MetaPageAccount
   tokenExpiresAt: string | null
 }) {
-  if (!page.access_token) {
-    throw new Error(ADDITIONAL_META_PERMISSION_MESSAGE)
-  }
-
   const supabase = createSupabaseServiceRoleClient()
   const userAccessToken = await getStoredMetaUserToken(userId)
   const rawProviderPayload = userAccessToken
@@ -404,28 +403,36 @@ export async function saveSelectedMetaPage({
     page.instagram_business_account?.username ??
     page.instagram_business_account?.name ??
     null
+  const hasPageAccessToken = Boolean(page.access_token)
 
   const facebookAccount = await upsertSocialAccount(supabase, {
     userId,
     platform: "facebook",
-    status: "connected",
+    status: hasPageAccessToken ? "connected" : "token_missing",
     handle: page.name,
-    description: "Facebook Page 업로드에 사용할 Page가 선택되었습니다.",
+    description: hasPageAccessToken
+      ? "Facebook Page 업로드에 사용할 Page가 선택되었습니다."
+      : "추가 Meta 권한 설정이 필요합니다. 현재는 Page 목록 조회만 가능합니다.",
     pageId: page.id,
     pageName: page.name,
+    pageCategory: page.category ?? null,
+    pageTasks: page.tasks ?? [],
+    hasPageAccessToken,
     instagramBusinessAccountId,
     tokenExpiresAt,
     connectedAt: new Date().toISOString(),
   })
 
-  await upsertSecret(
-    supabase,
-    facebookAccount.id,
-    page.access_token,
-    null,
-    page.id,
-    rawProviderPayload,
-  )
+  if (page.access_token) {
+    await upsertSecret(
+      supabase,
+      facebookAccount.id,
+      page.access_token,
+      null,
+      page.id,
+      rawProviderPayload,
+    )
+  }
 
   const instagramAccount = await upsertSocialAccount(supabase, {
     userId,
@@ -437,19 +444,24 @@ export async function saveSelectedMetaPage({
       : "선택한 Facebook Page에 연결된 Instagram Business 계정이 없습니다.",
     pageId: page.id,
     pageName: page.name,
+    pageCategory: page.category ?? null,
+    pageTasks: page.tasks ?? [],
+    hasPageAccessToken,
     instagramBusinessAccountId,
     tokenExpiresAt,
     connectedAt: instagramBusinessAccountId ? new Date().toISOString() : null,
   })
 
-  await upsertSecret(
-    supabase,
-    instagramAccount.id,
-    page.access_token,
-    null,
-    instagramBusinessAccountId ?? page.id,
-    rawProviderPayload,
-  )
+  if (page.access_token) {
+    await upsertSecret(
+      supabase,
+      instagramAccount.id,
+      page.access_token,
+      null,
+      instagramBusinessAccountId ?? page.id,
+      rawProviderPayload,
+    )
+  }
 
   return { facebookAccount, instagramAccount }
 }
@@ -482,6 +494,9 @@ export async function disconnectMetaPlatform(userId: string, platform: Platform)
       description: "연결이 해제되었습니다.",
       page_id: null,
       page_name: null,
+      page_category: null,
+      page_tasks: [],
+      has_page_access_token: false,
       instagram_business_account_id: null,
       token_expires_at: null,
       connected_at: null,
@@ -528,11 +543,14 @@ async function upsertSocialAccount(
   input: {
     userId: string
     platform: "facebook" | "instagram"
-    status: "connected" | "needs_connection" | "expired"
+    status: "connected" | "needs_connection" | "expired" | "token_missing"
     handle: string | null
     description: string | null
     pageId?: string | null
     pageName?: string | null
+    pageCategory?: string | null
+    pageTasks?: string[] | null
+    hasPageAccessToken?: boolean
     instagramBusinessAccountId?: string | null
     tokenExpiresAt?: string | null
     connectedAt?: string | null
@@ -549,6 +567,9 @@ async function upsertSocialAccount(
         description: input.description,
         page_id: input.pageId ?? null,
         page_name: input.pageName ?? null,
+        page_category: input.pageCategory ?? null,
+        page_tasks: input.pageTasks ?? [],
+        has_page_access_token: input.hasPageAccessToken ?? false,
         instagram_business_account_id: input.instagramBusinessAccountId ?? null,
         token_expires_at: input.tokenExpiresAt ?? null,
         connected_at: input.connectedAt ?? null,

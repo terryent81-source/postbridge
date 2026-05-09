@@ -17,7 +17,10 @@ export async function uploadToFacebook(
   }
 
   if (!context.secret?.access_token) {
-    return fail(context, "Facebook page access token is missing")
+    return fail(
+      context,
+      "Facebook 게시 권한이 부족합니다. pages_manage_posts 권한과 Page access token이 필요합니다.",
+    )
   }
 
   const media = context.mediaAssets[0]

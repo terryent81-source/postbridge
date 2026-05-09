@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { createServerSupabaseClient } from "@/lib/supabase/server"
 import {
-  ADDITIONAL_META_PERMISSION_MESSAGE,
   MetaGraphRequestError,
   type MetaErrorDetails,
   fetchMetaPages,
@@ -117,18 +116,6 @@ export async function POST(request: Request) {
         details: {
           step: "page_selection",
           message: "Page 목록을 새로고침한 뒤 다시 선택해 주세요.",
-        },
-      })
-    }
-
-    if (!selectedPage.access_token) {
-      return jsonError({
-        status: 403,
-        error: "META_PAGE_ACCESS_TOKEN_MISSING",
-        message: ADDITIONAL_META_PERMISSION_MESSAGE,
-        details: {
-          step: "page_access_token_enrichment",
-          message: "현재 Meta 권한으로는 Page access token을 받을 수 없습니다.",
         },
       })
     }

@@ -24,11 +24,14 @@ type MetaPlatform = "facebook" | "instagram"
 type MetaAccount = {
   id: string
   platform: MetaPlatform
-  status: "connected" | "needs_connection" | "expired"
+  status: "connected" | "needs_connection" | "expired" | "token_missing"
   handle: string | null
   description: string | null
   page_id: string | null
   page_name: string | null
+  page_category: string | null
+  page_tasks: string[] | null
+  has_page_access_token: boolean
   instagram_business_account_id: string | null
   token_expires_at: string | null
   connected_at: string | null
@@ -113,7 +116,7 @@ export default function AccountsPage() {
       const { data, error } = await supabase
         .from("social_accounts")
         .select(
-          "id, platform, status, handle, description, page_id, page_name, instagram_business_account_id, token_expires_at, connected_at, created_at, updated_at",
+          "id, platform, status, handle, description, page_id, page_name, page_category, page_tasks, has_page_access_token, instagram_business_account_id, token_expires_at, connected_at, created_at, updated_at",
         )
         .in("platform", PLATFORMS)
         .order("platform", { ascending: true })
@@ -309,6 +312,15 @@ export default function AccountsPage() {
                   <div className="space-y-1 text-sm text-muted-foreground">
                     <p>{account?.description ?? "아직 Meta 계정 연결 정보가 없습니다."}</p>
                     {account?.page_id && <p>Page ID: {account.page_id}</p>}
+                    {account?.page_category && <p>Category: {account.page_category}</p>}
+                    {account?.page_tasks?.length ? (
+                      <p>Tasks: {account.page_tasks.join(", ")}</p>
+                    ) : null}
+                    {account?.page_id && !account.has_page_access_token && (
+                      <p className="font-medium text-amber-700 dark:text-amber-300">
+                        추가 Meta 권한 설정이 필요합니다. 현재는 Page 목록 조회만 가능합니다.
+                      </p>
+                    )}
                     {account?.instagram_business_account_id && (
                       <p>Instagram Business ID: {account.instagram_business_account_id}</p>
                     )}
@@ -414,6 +426,10 @@ function getUiStatus(account?: MetaAccount): UiStatus {
   }
 
   if (account.status === "connected") {
+    return "connected"
+  }
+
+  if (account.status === "token_missing" && account.page_id) {
     return "connected"
   }
 

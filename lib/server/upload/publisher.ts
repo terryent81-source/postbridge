@@ -157,7 +157,24 @@ async function uploadRealPlatform(
       uploadMode,
     }
 
-    if (!account || account.status !== "connected") {
+    if (!account) {
+      return {
+        platform,
+        status: "failed" as const,
+        errorMessage: "Connected social account is required",
+      }
+    }
+
+    if (platform === "facebook" && !account.has_page_access_token) {
+      return {
+        platform,
+        status: "failed" as const,
+        errorMessage:
+          "Facebook 게시 권한이 부족합니다. pages_manage_posts 권한과 Page access token이 필요합니다.",
+      }
+    }
+
+    if (account.status !== "connected") {
       return {
         platform,
         status: "failed" as const,
@@ -215,7 +232,7 @@ async function getSocialAccount(
 ) {
   const { data, error } = await supabase
     .from("social_accounts")
-    .select("id, user_id, platform, status, page_id, page_name, instagram_business_account_id, token_expires_at")
+    .select("id, user_id, platform, status, page_id, page_name, has_page_access_token, instagram_business_account_id, token_expires_at")
     .eq("user_id", userId)
     .eq("platform", platform)
     .maybeSingle()
