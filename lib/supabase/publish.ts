@@ -8,6 +8,7 @@ export type PublishNowResult = {
   status: "published" | "failed"
   results: Array<{
     platform: string
+    uploadMode?: "mock" | "real"
     status: "success" | "failed"
     platformPostId?: string | null
     errorMessage?: string | null

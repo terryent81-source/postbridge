@@ -59,6 +59,7 @@ export type PlatformUploadContext = {
 
 export type PlatformUploadResult = {
   platform: Platform
+  uploadMode?: UploadMode
   status: "success" | "failed"
   platformPostId?: string | null
   errorMessage?: string | null

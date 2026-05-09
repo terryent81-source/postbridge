@@ -2,7 +2,7 @@ import "server-only"
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Platform } from "@/lib/db"
-import { getUploadMode } from "@/lib/server/upload/mode"
+import { getPlatformUploadMode, getUploadMode } from "@/lib/server/upload/mode"
 import {
   uploadToFacebook,
   uploadToInstagram,
@@ -24,7 +24,7 @@ export async function publishPostWithUploader(
   post: PublishablePost,
   attemptedAt = new Date(),
 ) {
-  const uploadMode = getUploadMode()
+  const defaultUploadMode = getUploadMode()
   const mediaAssets = await listPostMediaAssets(supabase, post)
 
   if (hasDeletedMedia(mediaAssets)) {
@@ -33,7 +33,7 @@ export async function publishPostWithUploader(
       post,
       "missing_media_file",
       attemptedAt,
-      uploadMode,
+      defaultUploadMode,
     )
   }
 
@@ -41,9 +41,12 @@ export async function publishPostWithUploader(
   const results: PlatformUploadResult[] = []
 
   for (const platform of post.platforms) {
+    const uploadMode = getPlatformUploadMode(platform, defaultUploadMode)
+
     if (uploadMode === "mock") {
       results.push({
         platform,
+        uploadMode,
         status: "success",
         platformPostId: `mock_${platform}_${post.id}`,
         platformMetadata: getUploadLogPlatformMetadata(post, platform),
@@ -56,7 +59,7 @@ export async function publishPostWithUploader(
     )
   }
 
-  await insertUploadLogs(supabase, post, results, attemptedAt, uploadMode)
+  await insertUploadLogs(supabase, post, results, attemptedAt, defaultUploadMode)
 
   const failedResults = results.filter((result) => result.status === "failed")
   const publishedAt = failedResults.length === 0 ? attemptedAt.toISOString() : null
@@ -91,7 +94,7 @@ export async function publishPostWithUploader(
   )
 
   return {
-    uploadMode,
+    uploadMode: defaultUploadMode,
     status,
     results,
   }
@@ -104,12 +107,17 @@ export async function failPostWithUploadLogs(
   attemptedAt = new Date(),
   uploadMode = getUploadMode(),
 ) {
-  const results = post.platforms.map<PlatformUploadResult>((platform) => ({
-    platform,
-    status: "failed",
-    errorMessage: reason,
-    platformMetadata: getUploadLogPlatformMetadata(post, platform),
-  }))
+  const results = post.platforms.map<PlatformUploadResult>((platform) => {
+    const platformUploadMode = getPlatformUploadMode(platform, uploadMode)
+
+    return {
+      platform,
+      uploadMode: platformUploadMode,
+      status: "failed",
+      errorMessage: reason,
+      platformMetadata: getUploadLogPlatformMetadata(post, platform),
+    }
+  })
 
   await insertUploadLogs(supabase, post, results, attemptedAt, uploadMode)
 
@@ -163,6 +171,7 @@ async function uploadRealPlatform(
     if (!account) {
       return {
         platform,
+        uploadMode,
         status: "failed" as const,
         errorMessage: "Connected social account is required",
       }
@@ -171,6 +180,7 @@ async function uploadRealPlatform(
     if (platform === "facebook" && !account.has_page_access_token) {
       return {
         platform,
+        uploadMode,
         status: "failed" as const,
         errorMessage:
           "Facebook 게시 권한이 부족합니다. pages_manage_posts 권한과 Page access token이 필요합니다.",
@@ -180,27 +190,29 @@ async function uploadRealPlatform(
     if (account.status !== "connected") {
       return {
         platform,
+        uploadMode,
         status: "failed" as const,
         errorMessage: "Connected social account is required",
       }
     }
 
     if (platform === "facebook") {
-      return uploadToFacebook(context)
+      return withUploadMode(await uploadToFacebook(context), uploadMode)
     }
 
     if (platform === "instagram") {
-      return uploadToInstagram(context)
+      return withUploadMode(await uploadToInstagram(context), uploadMode)
     }
 
     if (platform === "youtube") {
-      return uploadToYouTube(context)
+      return withUploadMode(await uploadToYouTube(context), uploadMode)
     }
 
-    return uploadUnsupportedPlatform(context)
+    return withUploadMode(await uploadUnsupportedPlatform(context), uploadMode)
   } catch (error) {
     return {
       platform,
+      uploadMode,
       status: "failed" as const,
       errorMessage:
         error instanceof Error ? error.message : "Platform upload failed",
@@ -284,7 +296,7 @@ async function insertUploadLogs(
       user_id: post.user_id,
       platform: result.platform,
       status: result.status,
-      upload_mode: uploadMode,
+      upload_mode: result.uploadMode ?? uploadMode,
       platform_metadata:
         result.platformMetadata ?? getUploadLogPlatformMetadata(post, result.platform),
       platform_post_id: result.platformPostId ?? null,
@@ -297,6 +309,16 @@ async function insertUploadLogs(
 
   if (error) {
     throw error
+  }
+}
+
+function withUploadMode(
+  result: PlatformUploadResult,
+  uploadMode: "real",
+): PlatformUploadResult {
+  return {
+    ...result,
+    uploadMode,
   }
 }
 
