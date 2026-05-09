@@ -2,7 +2,7 @@
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import {
-  VIDEO_OPTIMIZATION_TARGET_BYTES,
+  VIDEO_MAX_UPLOAD_SIZE_BYTES,
   VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
   VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE,
   type PreparedMediaUpload,
@@ -68,7 +68,7 @@ export type UploadPostMediaInput = {
 const POST_MEDIA_BUCKET = "post-media"
 const SIGNED_URL_EXPIRES_IN_SECONDS = 60 * 60
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024
-const VIDEO_MAX_BYTES = VIDEO_OPTIMIZATION_TARGET_BYTES
+const VIDEO_MAX_BYTES = VIDEO_MAX_UPLOAD_SIZE_BYTES
 const FAILED_SELECTION_DEDUPE_WINDOW_MS = 10 * 60 * 1000
 
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
@@ -278,7 +278,7 @@ async function recordFailedOptimizationAndAbort({
   mediaType: SupabaseMediaType
   deleteAfter: Date | null
 }): Promise<never> {
-  console.warn("[media-upload] Supabase Storage upload skipped before upload", {
+  console.warn("[media-upload] Oversized video blocked before upload", {
     fileName: upload.originalFile.name,
     fileSize: upload.originalSize,
   })
@@ -327,7 +327,7 @@ export async function recordFailedVideoOptimizationMediaAssets({
   const rows: SupabaseMediaAssetRow[] = []
 
   for (const upload of files) {
-    console.warn("[media-upload] Supabase Storage upload skipped before upload", {
+    console.warn("[media-upload] Oversized video blocked before upload", {
       fileName: upload.originalFile.name,
       fileSize: upload.originalSize,
     })
@@ -378,7 +378,7 @@ export async function recordFailedVideoOptimizationSelectionMediaAssets(
       continue
     }
 
-    console.warn("[media-upload] Supabase Storage upload skipped before upload", {
+    console.warn("[media-upload] Oversized video blocked before upload", {
       fileName: file.name,
       fileSize: file.size,
     })

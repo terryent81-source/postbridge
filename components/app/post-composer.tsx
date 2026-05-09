@@ -82,7 +82,6 @@ import { cn } from "@/lib/utils"
 import {
   prepareMediaFileForUpload,
   isVideoOptimizationRequired,
-  isVideoOptimizerAvailable,
   VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
   VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE,
   type PreparedMediaUpload,
@@ -174,10 +173,9 @@ export function PostComposer({
       try {
         validatePostMediaFile(file)
 
-        const needsOptimizer = isVideoOptimizationRequired(file)
-        const optimizerUnavailable = needsOptimizer && !isVideoOptimizerAvailable()
+        const isOversizedVideo = isVideoOptimizationRequired(file)
 
-        if (optimizerUnavailable) {
+        if (isOversizedVideo) {
           toast.error(VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE)
         }
 
@@ -188,8 +186,8 @@ export function PostComposer({
           type: file.type,
           url: URL.createObjectURL(file),
           file,
-          optimizationStatus: optimizerUnavailable ? "failed" : undefined,
-          optimizationMessage: optimizerUnavailable ? "최적화 실패" : undefined,
+          optimizationStatus: isOversizedVideo ? "failed" : undefined,
+          optimizationMessage: isOversizedVideo ? "영상 용량 초과" : undefined,
         }]
       } catch (error) {
         errors.push(error instanceof Error ? error.message : `${file.name}: 업로드할 수 없습니다.`)
@@ -200,8 +198,7 @@ export function PostComposer({
     const unavailableOptimizerItems = items.filter(
       (item) =>
         item.optimizationStatus === "failed" &&
-        isVideoOptimizationRequired(item.file) &&
-        !isVideoOptimizerAvailable(),
+        isVideoOptimizationRequired(item.file),
     )
     const recordedFailureKeys = new Set<string>()
 
@@ -1057,7 +1054,7 @@ function DropZone({
         {full ? "최대 10개까지 업로드 가능" : "파일을 끌어다 놓거나 클릭해서 업로드"}
       </p>
       <p className="text-xs text-muted-foreground">
-        JPG · PNG · WebP 최대 10MB, MP4 · MOV · WebM은 300MB 초과 시 자동 최적화
+        JPG · PNG · WebP 최대 10MB, 영상 파일은 최대 500MB까지 업로드할 수 있습니다.
       </p>
     </div>
   )

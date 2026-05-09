@@ -18,11 +18,14 @@ export type VideoOptimizationProgress = {
   attempt?: number
 }
 
+export const VIDEO_MAX_UPLOAD_SIZE_BYTES = 500 * 1024 * 1024
+export const VIDEO_OPTIMIZATION_TARGET_BYTES = VIDEO_MAX_UPLOAD_SIZE_BYTES
+
 export const VIDEO_OPTIMIZER_UNAVAILABLE_ERROR =
-  "Video exceeds 300MB and optimizer is not available"
+  "Video exceeds 500MB maximum upload size"
 
 export const VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE =
-  "300MB를 초과한 영상은 업로드 전에 자동 최적화가 필요합니다. 현재 최적화 엔진이 연결되지 않았습니다."
+  "영상 파일은 최대 500MB까지 업로드할 수 있습니다. 현재 선택한 파일은 500MB를 초과했습니다. 파일을 압축한 뒤 다시 업로드해 주세요."
 
 export type PreparedMediaUpload = {
   file: File
@@ -43,9 +46,7 @@ export type PreparedMediaUpload = {
   } | null
 }
 
-export const VIDEO_OPTIMIZATION_TARGET_BYTES = 300 * 1024 * 1024
 const MIN_VIDEO_BITRATE_KBPS = 900
-const OPTIMIZATION_ATTEMPTS = 3
 
 type VideoOptimizerAdapter = (input: {
   file: File
@@ -72,7 +73,7 @@ export async function prepareMediaFileForUpload(
     message: "파일 검사 중",
   })
 
-  if (!file.type.startsWith("video/") || file.size <= VIDEO_OPTIMIZATION_TARGET_BYTES) {
+  if (!file.type.startsWith("video/") || file.size <= VIDEO_MAX_UPLOAD_SIZE_BYTES) {
     return {
       file,
       originalFile: file,
@@ -85,80 +86,9 @@ export async function prepareMediaFileForUpload(
   }
 
   onProgress?.({
-    status: "optimizing",
-    message: "자동 최적화 중",
-    attempt: 1,
-  })
-
-  const optimizer = getVideoOptimizerAdapter()
-
-  if (!optimizer) {
-    onProgress?.({
-      status: "failed",
-      message: "최적화 실패",
-      attempt: 1,
-    })
-
-    return {
-      file,
-      originalFile: file,
-      originalSize: file.size,
-      optimizedSize: null,
-      optimizationStatus: "failed",
-      optimizationError: VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
-      optimizationAttempts: 1,
-      optimizationSettings: buildFfmpegOptimizationSettings(file, 1),
-    }
-  }
-
-  let lastError: unknown = null
-
-  for (let attempt = 1; attempt <= OPTIMIZATION_ATTEMPTS; attempt += 1) {
-    const settings = buildFfmpegOptimizationSettings(file, attempt)
-
-    try {
-      const optimizedFile = await optimizer({
-        file,
-        targetBytes: VIDEO_OPTIMIZATION_TARGET_BYTES,
-        attempt,
-        settings,
-        onProgress,
-      })
-
-      if (optimizedFile.size <= VIDEO_OPTIMIZATION_TARGET_BYTES) {
-        onProgress?.({
-          status: "completed",
-          message: "최적화 완료",
-          attempt,
-        })
-
-        return {
-          file: optimizedFile,
-          originalFile: file,
-          originalSize: file.size,
-          optimizedSize: optimizedFile.size,
-          optimizationStatus: "completed",
-          optimizationAttempts: attempt,
-          optimizationSettings: settings,
-        }
-      }
-
-      lastError = new Error("Optimized video still exceeds 300MB")
-    } catch (error) {
-      lastError = error
-    }
-
-    onProgress?.({
-      status: "optimizing",
-      message: "자동 최적화 중",
-      attempt: attempt + 1,
-    })
-  }
-
-  onProgress?.({
     status: "failed",
-    message: "최적화 실패",
-    attempt: OPTIMIZATION_ATTEMPTS,
+    message: "영상 용량 초과",
+    attempt: 1,
   })
 
   return {
@@ -167,17 +97,14 @@ export async function prepareMediaFileForUpload(
     originalSize: file.size,
     optimizedSize: null,
     optimizationStatus: "failed",
-    optimizationError:
-      lastError instanceof Error
-        ? lastError.message
-        : "영상 자동 최적화에 실패했습니다.",
-    optimizationAttempts: OPTIMIZATION_ATTEMPTS,
-    optimizationSettings: buildFfmpegOptimizationSettings(file, OPTIMIZATION_ATTEMPTS),
+    optimizationError: VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
+    optimizationAttempts: 1,
+    optimizationSettings: null,
   }
 }
 
 export function isVideoOptimizationRequired(file: File) {
-  return file.type.startsWith("video/") && file.size > VIDEO_OPTIMIZATION_TARGET_BYTES
+  return file.type.startsWith("video/") && file.size > VIDEO_MAX_UPLOAD_SIZE_BYTES
 }
 
 export function isVideoOptimizerAvailable() {
@@ -210,18 +137,7 @@ export function buildFfmpegOptimizationArgs(
   ]
 }
 
-function getVideoOptimizerAdapter(): VideoOptimizerAdapter | null {
-  const optimizer =
-    typeof window !== "undefined" ? window.PostBridgeVideoOptimizer?.optimize : null
-
-  if (optimizer) {
-    return optimizer
-  }
-
-  return null
-}
-
-function buildFfmpegOptimizationSettings(
+export function buildFfmpegOptimizationSettings(
   file: File,
   attempt: number,
 ): NonNullable<PreparedMediaUpload["optimizationSettings"]> {
@@ -229,7 +145,7 @@ function buildFfmpegOptimizationSettings(
   const targetVideoKbps = Math.max(
     MIN_VIDEO_BITRATE_KBPS,
     Math.floor(
-      ((VIDEO_OPTIMIZATION_TARGET_BYTES * 8) / estimatedDurationSeconds / 1000) *
+      ((VIDEO_MAX_UPLOAD_SIZE_BYTES * 8) / estimatedDurationSeconds / 1000) *
         (0.86 - (attempt - 1) * 0.14),
     ),
   )
@@ -240,14 +156,12 @@ function buildFfmpegOptimizationSettings(
     container: "mp4",
     maxHeight: 1080,
     maxFps: 30,
-    targetBytes: VIDEO_OPTIMIZATION_TARGET_BYTES,
+    targetBytes: VIDEO_MAX_UPLOAD_SIZE_BYTES,
     bitrateKbps: targetVideoKbps,
   }
 }
 
 function estimateDurationSeconds(file: File) {
-  // Without probing metadata in the main thread, use a conservative estimate
-  // that gives FFmpeg workers a deterministic first-pass bitrate target.
   const assumedInputBitrateKbps = 12_000
   return Math.max(15, (file.size * 8) / (assumedInputBitrateKbps * 1000))
 }
