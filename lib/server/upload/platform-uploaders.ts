@@ -234,14 +234,28 @@ async function createSignedMediaUrl(
   media: MediaAssetForUpload,
 ) {
   const { data, error } = await context.supabase.storage
-    .from(media.storage_bucket)
-    .createSignedUrl(media.storage_path, SIGNED_MEDIA_URL_EXPIRES_IN_SECONDS)
+    .from(getUploadStorageBucket(media))
+    .createSignedUrl(getUploadStoragePath(media), SIGNED_MEDIA_URL_EXPIRES_IN_SECONDS)
 
   if (error || !data?.signedUrl) {
     throw error ?? new Error("Could not create a signed media URL")
   }
 
   return data.signedUrl
+}
+
+function getUploadStorageBucket(media: MediaAssetForUpload) {
+  return media.optimization_status === "completed" &&
+    media.optimized_storage_bucket &&
+    media.optimized_storage_path
+    ? media.optimized_storage_bucket
+    : media.storage_bucket
+}
+
+function getUploadStoragePath(media: MediaAssetForUpload) {
+  return media.optimization_status === "completed" && media.optimized_storage_path
+    ? media.optimized_storage_path
+    : media.storage_path
 }
 
 async function postGraphRequest(url: string, payload: Record<string, string>) {

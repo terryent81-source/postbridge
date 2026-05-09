@@ -50,6 +50,8 @@ type MediaAsset = {
   post_id: string | null
   storage_bucket: string
   storage_path: string | null
+  optimized_storage_bucket?: string | null
+  optimized_storage_path?: string | null
   status: MediaAssetStatus
   created_at: string
   updated_at: string
@@ -263,13 +265,12 @@ async function cleanupMediaAsset(
     return
   }
 
-  const deleted = await deleteStorageFile(
-    supabase,
-    summary,
-    asset.storage_bucket,
-    asset.storage_path,
-    asset.id,
+  const deletedResults = await Promise.all(
+    getStorageTargets(asset).map((target) =>
+      deleteStorageFile(supabase, summary, target.bucket, target.path, asset.id),
+    ),
   )
+  const deleted = deletedResults.some(Boolean)
 
   if (deleted && markMetadata) {
     await markMediaAssetDeleted(supabase, summary, asset, now.toISOString())
@@ -295,7 +296,7 @@ async function cleanupOrphanStorageFiles(
 
   const { data: linkedAssets, error: assetError } = await supabase
     .from("media_assets")
-    .select("id, post_id, storage_bucket, storage_path, status, created_at, updated_at, deleted_at, posts(id, status, created_at, updated_at)")
+    .select("id, post_id, storage_bucket, storage_path, optimized_storage_bucket, optimized_storage_path, status, created_at, updated_at, deleted_at, posts(id, status, created_at, updated_at)")
     .eq("storage_bucket", POST_MEDIA_BUCKET)
     .in(
       "storage_path",
@@ -339,6 +340,27 @@ async function cleanupOrphanStorageFiles(
       await markMediaAssetDeleted(supabase, summary, linkedAsset, now.toISOString())
     }
   }
+}
+
+function getStorageTargets(asset: MediaAsset) {
+  const targets = new Map<string, { bucket: string; path: string }>()
+
+  if (asset.storage_path) {
+    targets.set(`${asset.storage_bucket}:${asset.storage_path}`, {
+      bucket: asset.storage_bucket,
+      path: asset.storage_path,
+    })
+  }
+
+  if (asset.optimized_storage_path) {
+    const bucket = asset.optimized_storage_bucket || asset.storage_bucket
+    targets.set(`${bucket}:${asset.optimized_storage_path}`, {
+      bucket,
+      path: asset.optimized_storage_path,
+    })
+  }
+
+  return Array.from(targets.values())
 }
 
 async function fetchExpiredStorageObjects(
@@ -468,7 +490,7 @@ export async function POST(request: Request) {
   const now = new Date()
   const { data, error } = await supabase
     .from("media_assets")
-    .select("id, post_id, storage_bucket, storage_path, status, created_at, updated_at, deleted_at, posts(id, status, created_at, updated_at)")
+    .select("id, post_id, storage_bucket, storage_path, optimized_storage_bucket, optimized_storage_path, status, created_at, updated_at, deleted_at, posts(id, status, created_at, updated_at)")
     .eq("storage_bucket", POST_MEDIA_BUCKET)
     .neq("status", "deleted")
     .is("deleted_at", null)
@@ -486,6 +508,9 @@ export async function POST(request: Request) {
   for (const asset of assets) {
     if (asset.storage_path) {
       processedStoragePaths.add(asset.storage_path)
+    }
+    if (asset.optimized_storage_path) {
+      processedStoragePaths.add(asset.optimized_storage_path)
     }
 
     await cleanupMediaAsset(supabase, summary, asset, now)

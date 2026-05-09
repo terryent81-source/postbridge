@@ -78,6 +78,13 @@ import {
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import {
+  prepareMediaFileForUpload,
+  VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
+  VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE,
+  type PreparedMediaUpload,
+  type VideoOptimizationStatus,
+} from "@/lib/media/video-optimization"
+import {
   YOUTUBE_PRIVACY_OPTIONS,
   type YouTubePrivacyStatus,
 } from "@/lib/youtube/privacy"
@@ -95,6 +102,8 @@ type MediaItem = {
   type: string
   url: string
   file: File
+  optimizationStatus?: VideoOptimizationStatus
+  optimizationMessage?: string
 }
 
 export function PostComposer({
@@ -413,15 +422,21 @@ export function PostComposer({
     postId: string,
     cleanup?: { status: "pending_delete"; deleteAfter: Date },
   ) => {
-    const files = media.map((item) => item.file)
-
-    if (files.length === 0) {
+    if (media.length === 0) {
       return 0
     }
 
-    const toastId = toast.loading(`${files.length}개 미디어를 업로드하는 중입니다.`)
+    const toastId = toast.loading(`${media.length}개 미디어를 업로드하는 중입니다.`)
 
     try {
+      const files = await prepareMediaForUpload()
+      setMedia((current) =>
+        current.map((item) => ({
+          ...item,
+          optimizationStatus: item.optimizationStatus ?? "uploading",
+          optimizationMessage: item.optimizationMessage ?? "업로드 중",
+        })),
+      )
       const assets = await uploadPostMediaAssets({
         postId,
         files,
@@ -433,6 +448,13 @@ export function PostComposer({
         id: toastId,
         description: "Supabase Storage와 media_assets에 연결되었습니다.",
       })
+      setMedia((current) =>
+        current.map((item) => ({
+          ...item,
+          optimizationMessage:
+            item.optimizationStatus === "completed" ? "최적화 완료" : undefined,
+        })),
+      )
       return assets.length
     } catch (error) {
       toast.error("미디어 업로드에 실패했습니다", {
@@ -441,6 +463,59 @@ export function PostComposer({
       })
       throw error
     }
+  }
+
+  async function prepareMediaForUpload(): Promise<PreparedMediaUpload[]> {
+    const preparedFiles: PreparedMediaUpload[] = []
+
+    for (const item of media) {
+      const prepared = await prepareMediaFileForUpload(item.file, (progress) => {
+        setMedia((current) =>
+          current.map((mediaItem) =>
+            mediaItem.id === item.id
+              ? {
+                  ...mediaItem,
+                  optimizationStatus: progress.status,
+                  optimizationMessage: progress.attempt
+                    ? `${progress.message} (${progress.attempt}차)`
+                    : progress.message,
+                }
+              : mediaItem,
+          ),
+        )
+      })
+
+      setMedia((current) =>
+        current.map((mediaItem) =>
+          mediaItem.id === item.id
+            ? {
+                ...mediaItem,
+                file: prepared.file,
+                size: prepared.file.size,
+                type: prepared.file.type,
+                optimizationStatus:
+                  prepared.optimizationStatus === "completed"
+                    ? "completed"
+                    : prepared.optimizationStatus === "failed"
+                      ? "failed"
+                      : undefined,
+                optimizationMessage:
+                  prepared.optimizationStatus === "completed"
+                    ? "최적화 완료"
+                    : prepared.optimizationStatus === "failed"
+                      ? "최적화 실패"
+                    : undefined,
+              }
+            : mediaItem,
+        ),
+      )
+      if (prepared.optimizationError === VIDEO_OPTIMIZER_UNAVAILABLE_ERROR) {
+        toast.error(VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE)
+      }
+      preparedFiles.push(prepared)
+    }
+
+    return preparedFiles
   }
 
   const insertHashtagSet = (tags: string) => {
@@ -873,7 +948,7 @@ function DropZone({
         {full ? "최대 10개까지 업로드 가능" : "파일을 끌어다 놓거나 클릭해서 업로드"}
       </p>
       <p className="text-xs text-muted-foreground">
-        JPG · PNG · WebP 최대 10MB, MP4 · MOV · WebM 최대 300MB
+        JPG · PNG · WebP 최대 10MB, MP4 · MOV · WebM은 300MB 초과 시 자동 최적화
       </p>
     </div>
   )
@@ -901,6 +976,20 @@ function MediaThumb({ item, onRemove }: { item: MediaItem; onRemove: () => void 
       {isVideo && (
         <span className="absolute bottom-1 left-1 rounded bg-foreground/80 px-1 py-0.5 text-[9px] font-bold uppercase text-background">
           VIDEO
+        </span>
+      )}
+      {item.optimizationMessage && (
+        <span
+          className={cn(
+            "absolute inset-x-1 bottom-1 rounded px-1 py-0.5 text-[9px] font-bold text-background",
+            item.optimizationStatus === "failed"
+              ? "bg-destructive"
+              : item.optimizationStatus === "completed"
+                ? "bg-emerald-600"
+                : "bg-foreground/80",
+          )}
+        >
+          {item.optimizationMessage}
         </span>
       )}
     </div>

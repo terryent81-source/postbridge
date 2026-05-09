@@ -18,10 +18,14 @@ export type MediaAssetForUpload = {
   id: string
   storage_bucket: string
   storage_path: string
+  optimized_storage_bucket?: string | null
+  optimized_storage_path?: string | null
   file_name: string
   mime_type: string
+  optimized_mime_type?: string | null
   media_type: "image" | "video"
   status: string
+  optimization_status?: string | null
   deleted_at: string | null
 }
 

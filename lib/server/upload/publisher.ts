@@ -257,7 +257,7 @@ async function listPostMediaAssets(
   const { data, error } = await supabase
     .from("media_assets")
     .select(
-      "id, storage_bucket, storage_path, file_name, mime_type, media_type, status, deleted_at",
+      "id, storage_bucket, storage_path, optimized_storage_bucket, optimized_storage_path, file_name, mime_type, optimized_mime_type, media_type, status, optimization_status, deleted_at",
     )
     .eq("post_id", post.id)
     .eq("user_id", post.user_id)

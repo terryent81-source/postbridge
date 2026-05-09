@@ -1,6 +1,13 @@
 "use client"
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
+import {
+  VIDEO_OPTIMIZATION_TARGET_BYTES,
+  VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
+  VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE,
+  type PreparedMediaUpload,
+  type VideoOptimizationDbStatus,
+} from "@/lib/media/video-optimization"
 
 // Storage is temporary staging for SNS uploads, not permanent media storage.
 // Clients only upload and mark cleanup intent; service_role workers perform
@@ -27,6 +34,17 @@ export type SupabaseMediaAssetRow = {
   file_size: number
   media_type: SupabaseMediaType
   status: SupabaseMediaAssetStatus
+  original_size?: number | null
+  optimized_size?: number | null
+  optimization_status?: VideoOptimizationDbStatus
+  original_media_url?: string | null
+  optimized_media_url?: string | null
+  optimized_storage_bucket?: string | null
+  optimized_storage_path?: string | null
+  optimized_mime_type?: string | null
+  optimization_error?: string | null
+  optimization_attempts?: number
+  optimization_settings?: Record<string, unknown>
   delete_after: string | null
   deleted_at: string | null
   created_at: string
@@ -42,7 +60,7 @@ export const MEDIA_EXPIRED_MESSAGE =
 
 export type UploadPostMediaInput = {
   postId: string
-  files: File[]
+  files: Array<File | PreparedMediaUpload>
   status?: Extract<SupabaseMediaAssetStatus, "attached" | "pending_delete">
   deleteAfter?: Date | null
 }
@@ -50,7 +68,7 @@ export type UploadPostMediaInput = {
 const POST_MEDIA_BUCKET = "post-media"
 const SIGNED_URL_EXPIRES_IN_SECONDS = 60 * 60
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024
-const VIDEO_MAX_BYTES = 300 * 1024 * 1024
+const VIDEO_MAX_BYTES = VIDEO_OPTIMIZATION_TARGET_BYTES
 
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 const ALLOWED_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"])
@@ -69,10 +87,6 @@ export function validatePostMediaFile(file: File): SupabaseMediaType {
   }
 
   if (ALLOWED_VIDEO_TYPES.has(file.type)) {
-    if (file.size > VIDEO_MAX_BYTES) {
-      throw new Error(`${file.name}: 영상은 최대 300MB까지 업로드할 수 있습니다.`)
-    }
-
     return "video"
   }
 
@@ -103,9 +117,50 @@ export async function uploadPostMediaAssets({
 
   const uploadedRows: SupabaseMediaAssetRow[] = []
 
-  for (const file of files) {
+  for (const inputFile of files) {
+    const upload = normalizePreparedUpload(inputFile)
+    const file = upload.file
     const mediaType = validatePostMediaFile(file)
-    const storagePath = `${user.id}/${postId}/${buildStorageFileName(file.name)}`
+
+    if (upload.optimizationStatus === "failed") {
+      console.warn("[media-upload] Supabase Storage upload skipped before upload", {
+        fileName: upload.originalFile.name,
+        originalSize: upload.originalSize,
+        optimizationStatus: upload.optimizationStatus,
+      })
+
+      const failedRow = await insertFailedOptimizationMediaAsset({
+        supabase,
+        userId: user.id,
+        postId,
+        upload,
+        mediaType,
+        deleteAfter,
+      })
+      uploadedRows.push(failedRow)
+
+      throw new Error(formatOptimizationUploadError(upload.optimizationError))
+    }
+
+    if (
+      mediaType === "video" &&
+      file.size > VIDEO_MAX_BYTES &&
+      upload.optimizationStatus !== "completed"
+    ) {
+      console.warn("[media-upload] Supabase Storage upload skipped before upload", {
+        fileName: upload.originalFile.name,
+        originalSize: upload.originalSize,
+        reason: "video_exceeds_300mb_without_optimization",
+      })
+      throw new Error(`${file.name}: 300MB 초과 영상은 자동 최적화 후 업로드할 수 있습니다.`)
+    }
+
+    const originalStoragePath = `${user.id}/${postId}/original/${buildStorageFileName(upload.originalFile.name)}`
+    const optimizedStoragePath =
+      upload.optimizationStatus === "completed"
+        ? `${user.id}/${postId}/optimized/${buildStorageFileName(file.name)}`
+        : null
+    const storagePath = optimizedStoragePath ?? originalStoragePath
 
     const { error: uploadError } = await supabase.storage
       .from(POST_MEDIA_BUCKET)
@@ -129,6 +184,18 @@ export async function uploadPostMediaAssets({
         mime_type: file.type,
         file_size: file.size,
         media_type: mediaType,
+        original_size: upload.originalSize,
+        optimized_size: upload.optimizedSize,
+        optimization_status: upload.optimizationStatus,
+        original_media_url:
+          upload.optimizationStatus === "completed" ? null : originalStoragePath,
+        optimized_media_url: optimizedStoragePath,
+        optimized_storage_bucket: optimizedStoragePath ? POST_MEDIA_BUCKET : null,
+        optimized_storage_path: optimizedStoragePath,
+        optimized_mime_type: optimizedStoragePath ? file.type : null,
+        optimization_error: upload.optimizationError ?? null,
+        optimization_attempts: upload.optimizationAttempts,
+        optimization_settings: upload.optimizationSettings ?? {},
         status,
         delete_after: deleteAfter?.toISOString() ?? null,
       })
@@ -143,6 +210,65 @@ export async function uploadPostMediaAssets({
   }
 
   return uploadedRows
+}
+
+async function insertFailedOptimizationMediaAsset({
+  supabase,
+  userId,
+  postId,
+  upload,
+  mediaType,
+  deleteAfter,
+}: {
+  supabase: ReturnType<typeof createBrowserSupabaseClient>
+  userId: string
+  postId: string
+  upload: PreparedMediaUpload
+  mediaType: SupabaseMediaType
+  deleteAfter: Date | null
+}) {
+  const failedStoragePath = `${userId}/${postId}/failed/${buildStorageFileName(upload.originalFile.name)}`
+  const { data, error } = await supabase
+    .from("media_assets")
+    .insert({
+      user_id: userId,
+      post_id: postId,
+      storage_bucket: POST_MEDIA_BUCKET,
+      storage_path: failedStoragePath,
+      file_name: upload.originalFile.name,
+      mime_type: upload.originalFile.type,
+      file_size: upload.originalSize,
+      media_type: mediaType,
+      original_size: upload.originalSize,
+      optimized_size: null,
+      optimization_status: "failed",
+      original_media_url: null,
+      optimized_media_url: null,
+      optimized_storage_bucket: null,
+      optimized_storage_path: null,
+      optimized_mime_type: null,
+      optimization_error: upload.optimizationError ?? VIDEO_OPTIMIZER_UNAVAILABLE_ERROR,
+      optimization_attempts: Math.max(1, upload.optimizationAttempts),
+      optimization_settings: upload.optimizationSettings ?? {},
+      status: "upload_failed",
+      delete_after: deleteAfter?.toISOString() ?? null,
+    })
+    .select("*")
+    .single<SupabaseMediaAssetRow>()
+
+  if (error) {
+    throw error
+  }
+
+  return data
+}
+
+function formatOptimizationUploadError(error: string | null | undefined) {
+  if (!error || error === VIDEO_OPTIMIZER_UNAVAILABLE_ERROR) {
+    return VIDEO_OPTIMIZER_UNAVAILABLE_MESSAGE
+  }
+
+  return error
 }
 
 export async function markMyPostMediaPendingDelete(
@@ -238,4 +364,23 @@ function buildStorageFileName(fileName: string) {
     .slice(0, 120)
 
   return `${crypto.randomUUID()}-${safeName || "upload"}`
+}
+
+function normalizePreparedUpload(input: File | PreparedMediaUpload): PreparedMediaUpload {
+  if ("originalFile" in input) {
+    return input
+  }
+
+  return {
+    file: input,
+    originalFile: input,
+    originalSize: input.size,
+    optimizedSize: null,
+    optimizationStatus:
+      input.type.startsWith("video/") && input.size > VIDEO_MAX_BYTES
+        ? "pending"
+        : "not_needed",
+    optimizationAttempts: 0,
+    optimizationSettings: null,
+  }
 }
